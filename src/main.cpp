@@ -1,7 +1,7 @@
 // ============================================================================
 //  ESP32-S3 Wardriver  -  main orchestration & mode manager.
 //
-//  WARDRIVE mode : WiFi + BLE scanning, GPS tagging, de-dup logging, web UI.
+//  WARDRIVE mode : WiFi scanning, GPS tagging, de-dup logging, web UI.
 //  ATTACK mode   : 802.11 promiscuous packet monitor + targeted deauth.
 //
 //  The two modes are mutually exclusive because monitor/promiscuous mode and
@@ -17,7 +17,6 @@
 #include "NetworkStore.h"
 #include "GpsModule.h"
 #include "WifiScanner.h"
-#include "BleScanner.h"
 #include "PacketSniffer.h"
 #include "WebInterface.h"
 
@@ -40,13 +39,11 @@ static void setLed(uint8_t r, uint8_t g, uint8_t b) {
 // --- Mode transitions -------------------------------------------------------
 static void enterWardrive() {
     g_sniffer.stop();
-    g_bleScanner.begin();          // re-init NimBLE (released in attack mode)
     setLed(0, 40, 0);              // green
     Serial.println("[MODE] -> WARDRIVE");
 }
 
 static void enterAttack() {
-    g_bleScanner.stop();           // free BLE controller for promiscuous WiFi
     // Sniffer is started on demand from the UI; deauth requires it active.
     setLed(40, 0, 0);              // red
     Serial.println("[MODE] -> ATTACK");
@@ -94,7 +91,6 @@ void setup() {
     g_wifiScanner.begin();
     g_web.begin();
     g_sniffer.begin();
-    g_bleScanner.begin();
 
     enterWardrive();
     Serial.println("=== ready ===");
@@ -108,9 +104,6 @@ void loop() {
 
     if (s_mode == MODE_WARDRIVE) {
         g_wifiScanner.poll();
-        // Stagger BLE: don't start a BLE scan while WiFi is off-channel, so the
-        // two radios aren't contending and the AP stays responsive.
-        if (!g_wifiScanner.isScanning()) g_bleScanner.poll();
     }
     // ATTACK mode: sniffer/deauth run via the async web handlers; nothing to
     // pump here. The web server runs in its own task either way.

@@ -92,8 +92,7 @@ a{color:var(--cyan)}
 
 <div class="bar">
 <div class="stat"><div class="k">DEVICES</div><div class="v" id="sDev">0</div></div>
-<div class="stat"><div class="k">WIFI</div><div class="v" id="sWifi">0</div></div>
-<div class="stat"><div class="k">BLE</div><div class="v" id="sBle">0</div></div>
+<div class="stat"><div class="k">WIFI APs</div><div class="v" id="sWifi">0</div></div>
 <div class="stat red"><div class="k">THREATS</div><div class="v" id="sThreat">0</div></div>
 <div class="stat"><div class="k">GPS</div><div class="v" id="sGps">--</div></div>
 <div class="stat"><div class="k">UPTIME</div><div class="v" id="sUp">0s</div></div>
@@ -112,8 +111,7 @@ a{color:var(--cyan)}
   <div class="row">
     <input id="filter" placeholder="filter ssid / mac / vendor..." oninput="render()">
     <select id="ftype" onchange="render()">
-      <option value="">all types</option><option value="WiFi">WiFi only</option>
-      <option value="BLE">BLE only</option><option value="danger">threats only</option>
+      <option value="">all networks</option><option value="danger">threats only</option>
     </select>
     <span class="spacer" style="flex:1"></span>
     <a class="btn" href="/api/export.csv" download="wardrive.csv">EXPORT CSV</a>
@@ -162,11 +160,10 @@ a{color:var(--cyan)}
 
 <!-- INFO -->
 <section id="vInfo" class="hidden">
-  <p class="muted">ESP32-S3 Wardriver &mdash; WiFi + BLE recon, GPS-tagged,
+  <p class="muted">ESP32-S3 Wardriver &mdash; WiFi recon, GPS-tagged,
    CSV export. AP-hosted control plane.</p>
   <ul class="muted">
    <li>Color key: <span style="color:var(--fg)">WiFi</span> /
-       <span style="color:var(--cyan)">BLE</span> /
        <span style="color:var(--red)">THREAT (e.g. Flock camera)</span></li>
    <li id="iGps">GPS: unknown</li><li id="iAp">AP: --</li>
    <li>Duplicates are merged by MAC; RSSI shows the strongest sighting.</li>
@@ -198,7 +195,7 @@ function applyMode(m){const a=m==='attack';
 
 async function refreshStatus(){try{const s=await jget('/api/status');
  $('sDev').textContent=s.devices;$('sWifi').textContent=s.wifi;
- $('sBle').textContent=s.ble;$('sThreat').textContent=s.threats;
+ $('sThreat').textContent=s.threats;
  $('sGps').textContent=s.gps.fix?s.gps.sats+'sat':(s.gps.present?'srch':'--');
  $('sUp').textContent=fmtUp(s.uptime);$('sHeap').textContent=Math.round(s.heap/1024);
  const ago=s.lastScan>0?Math.max(0,s.uptime-((s.lastScan/1000)|0)):-1;
@@ -219,8 +216,6 @@ function sortBy(k){if(SORT===k)ASC=!ASC;else{SORT=k;ASC=(k==='ssid'||k==='mac');
 
 function render(){const f=$('filter').value.toLowerCase(),ft=$('ftype').value;
  let list=DEV.filter(d=>{
-   if(ft==='WiFi'&&d.type!=='WiFi')return false;
-   if(ft==='BLE'&&d.type!=='BLE')return false;
    if(ft==='danger'&&!d.dangerous)return false;
    if(!f)return true;
    return (esc(d.ssid)+esc(d.mac)+esc(d.vendor)).toLowerCase().includes(f);});
@@ -230,7 +225,7 @@ function render(){const f=$('filter').value.toLowerCase(),ft=$('ftype').value;
    return ASC?x-y:y-x;});
  const tb=$('rows');tb.textContent='';
  for(const d of list){const tr=document.createElement('tr');
-   tr.className=d.dangerous?'danger':(d.type==='BLE'?'ble':'wifi');
+   tr.className=d.dangerous?'danger':'wifi';
    const cells=[];
    const c0=document.createElement('td');c0.className='ssid';
    c0.textContent=d.ssid||'<hidden>';
