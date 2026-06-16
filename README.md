@@ -1,17 +1,23 @@
 # ESP32-S3 Wardriver
 
-A WiFi + BLE recon platform for the **ESP32-S3-DevKitC-1 (N16R8)**. It scans for
-nearby access points and Bluetooth devices, de-duplicates them by MAC, tags each
-with signal strength / encryption / a timestamp (and GPS location when a module
-is attached), flags likely **Flock Safety surveillance cameras** as threats, and
-serves everything through a hacker-themed web interface hosted from the device's
-own WiFi access point. It also includes an 802.11 packet monitor and a targeted
-deauthentication tool for **authorised** security testing.
+A WiFi recon platform for the **ESP32-S3-DevKitC-1 (N16R8)**. It scans for
+nearby access points, de-duplicates them by MAC, tags each with signal strength
+/ encryption / a timestamp (and GPS location when a module is attached), flags
+likely **Flock Safety surveillance cameras** as threats, and serves everything
+through a hacker-themed web interface hosted from the device's own WiFi access
+point. It also includes an 802.11 packet monitor and a targeted deauthentication
+tool for **authorised** security testing.
+
+> **Note:** Bluetooth/BLE scanning was intentionally removed. On the
+> single-antenna ESP32-S3, running the BT controller alongside the SoftAP forces
+> a WiFi/BT coexistence mode that destabilises the access point. Dropping it
+> gives WiFi the entire radio and a large chunk of RAM back, which is what keeps
+> the AP and web UI stable.
 
 ```
         ((o))      ESP32-S3 // RF RECON UNIT
-       /  |  \     WiFi + BLE  •  GPS-tagged  •  CSV export
-      WiFi BLE GPS  AP-hosted control plane
+       /  |  \     WiFi  •  GPS-tagged  •  CSV export
+       WiFi  GPS   AP-hosted control plane
 ```
 
 ---
@@ -35,10 +41,10 @@ under a signed engagement. You are responsible for how you use this.
 | Feature | Status |
 |---|---|
 | WiFi AP scanning (SSID, BSSID, RSSI, channel, encryption) | ✅ |
-| BLE device scanning (name, MAC, RSSI) | ✅ |
+| BLE device scanning | ❌ removed (WiFi/BT coexistence destabilised the AP) |
 | De-duplication by MAC (strongest-RSSI sighting kept) | ✅ |
 | CSV export (SSID, MAC, signal, type, timestamp, GPS, …) | ✅ |
-| Web UI with color-coded WiFi / BLE / threat rows | ✅ |
+| Web UI with color-coded WiFi / threat rows | ✅ |
 | Flock camera detection → flagged **DANGEROUS** (red) | ✅ (heuristic, see notes) |
 | Packet monitor with per-type counters | ✅ |
 | Targeted / broadcast deauthentication | ✅ (attack mode) |
@@ -91,8 +97,7 @@ Prefer PlatformIO, but if you must use the Arduino IDE:
 
 1. Install the **esp32 by Espressif** board package (Boards Manager).
 2. Install libraries: *ESPAsyncWebServer* + *AsyncTCP* (the
-   [ESP32Async](https://github.com/ESP32Async) forks), *NimBLE-Arduino*,
-   *TinyGPSPlus*.
+   [ESP32Async](https://github.com/ESP32Async) forks), *TinyGPSPlus*.
 3. Select **ESP32S3 Dev Module**, set Flash 16 MB, **PSRAM: OPI PSRAM**,
    Partition Scheme with ≥4 MB app.
 4. Move the `src/*` files into a sketch folder (rename `main.cpp` → the sketch
@@ -125,7 +130,7 @@ Defaults are set up to be safe-ish, but before real use, in `src/config.h`:
   mutually exclusive because monitor mode and active scanning contend for the
   radio.
 - **DISCOVERED tab** — live, de-duplicated device list. Filter/sort, color key:
-  - <span>🟢</span> **WiFi**  •  <span>🔵</span> **BLE**  •  <span>🔴</span> **THREAT** (e.g. Flock camera, blinking)
+  - <span>🟢</span> **WiFi**  •  <span>🔴</span> **THREAT** (e.g. Flock camera, blinking)
   - **EXPORT CSV** downloads everything; **CLEAR** wipes the store.
 - **PACKET MONITOR tab** (ATTACK mode) — per-type frame counters
   (mgmt/data/ctrl/beacon/probe/deauth/EAPOL), a live recent-frames table, a
@@ -174,7 +179,8 @@ firmware avoids that:
   channel ~90% of the time instead of blacking out during a full sweep.
 - **A captive-portal DNS server** answers all lookups with `192.168.4.1`, so
   phones pop the sign-in page and the UI loads without typing the IP.
-- **BLE scans are staggered** behind WiFi scans so the radios don't contend.
+- **Bluetooth is removed**, so the BT controller never contends with WiFi for
+  the shared antenna — the biggest stability win.
 
 If you still see drops: keep `AP_CHANNEL` (default 1) on a quiet channel, and if
 you want maximum AP stability over scan coverage, raise `WIFI_SCAN_INTERVAL_MS`
@@ -186,11 +192,10 @@ prompted, so the handset doesn't fall back to mobile data.
 The ESP32-S3 cannot cleanly run WiFi promiscuous/monitor mode *and* normal
 AP + active scanning simultaneously. So:
 
-- **WARDRIVE:** SoftAP + WiFi scanning + BLE scanning + GPS + full UI.
-- **ATTACK:** BLE controller released; promiscuous capture / deauth on a chosen
-  channel. If the sniff channel differs from the AP channel, your browser may
-  briefly disconnect while the radio is on the other channel — reconnect and the
-  captured data is waiting.
+- **WARDRIVE:** SoftAP + WiFi scanning + GPS + full UI.
+- **ATTACK:** promiscuous capture / deauth on a chosen channel. If the sniff
+  channel differs from the AP channel, your browser may briefly disconnect while
+  the radio is on the other channel — reconnect and the captured data is waiting.
 
 ---
 
@@ -219,7 +224,6 @@ src/
   NetworkStore.*      De-dup store + JSON/CSV/persistence
   GpsModule.*         NMEA GPS (optional hardware)
   WifiScanner.*       Non-blocking WiFi scanning
-  BleScanner.*        NimBLE scanning
   PacketSniffer.*     Promiscuous capture, counters, deauth
   WebInterface.*      Async HTTP UI + JSON/CSV API
   web_assets.h        Embedded single-page UI

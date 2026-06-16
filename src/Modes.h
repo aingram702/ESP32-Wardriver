@@ -1,6 +1,6 @@
 // ============================================================================
 //  Modes.h  -  Operating-mode contract shared between main and the web layer.
-//  WARDRIVE: WiFi+BLE scanning, logging, full web UI. (default)
+//  WARDRIVE: WiFi scanning, logging, full web UI. (default)
 //  ATTACK:   promiscuous packet monitor + targeted deauth. Scanning paused.
 // ============================================================================
 #pragma once
@@ -12,7 +12,7 @@ enum WardriverMode : uint8_t {
 };
 
 // Implemented in main.cpp. Switching is centralised so the radio is always
-// reconfigured safely (e.g. BLE released before entering promiscuous mode).
+// reconfigured safely when entering/leaving promiscuous mode.
 WardriverMode currentMode();
 const char*   currentModeName();
 void          requestMode(WardriverMode m);
