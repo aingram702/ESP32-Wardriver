@@ -7,6 +7,7 @@
 class WebInterface {
 public:
     void begin();          // start the AP + web server
+    void loop();           // pump the captive-portal DNS server
     String apIp();         // SoftAP IP as string (for the serial banner)
 
 private:

@@ -1,7 +1,7 @@
 // ============================================================================
 //  WifiScanner  -  Non-blocking WiFi AP discovery feeding the NetworkStore.
-//  Uses the async scan API so the web UI and AP stay responsive. Coexists with
-//  the SoftAP via WIFI_AP_STA mode.
+//  Scans ONE channel per cycle (rotating 1..WIFI_MAX_CHANNEL) so the SoftAP
+//  stays on its home channel almost all the time and clients don't drop.
 // ============================================================================
 #pragma once
 #include <Arduino.h>
@@ -10,10 +10,12 @@ class WifiScanner {
 public:
     void begin();
     void poll();          // call from loop(); schedules + harvests scans
+    bool isScanning() const { return _scanning; }
     uint32_t lastScanMs() const { return _lastDone; }
 
 private:
     bool     _scanning = false;
+    uint8_t  _channel   = 1;     // channel currently being rotated through
     uint32_t _lastStart = 0;
     uint32_t _lastDone  = 0;
     void harvest();

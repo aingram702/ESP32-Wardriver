@@ -162,6 +162,25 @@ signatures back into `flock_data.h`. See the community
 
 ---
 
+## Troubleshooting: unstable AP / can't load the page
+
+In `WIFI_AP_STA` mode the AP and the scanner share one radio, so a naive full
+channel sweep drags the AP off its channel for >1 s and clients drop. This
+firmware avoids that:
+
+- **Modem power-save is disabled** (`WiFi.setSleep(false)`) so the AP stays
+  responsive — the single biggest fix for a hanging web UI.
+- **Scans hop one channel per cycle** (passive), keeping the AP on its home
+  channel ~90% of the time instead of blacking out during a full sweep.
+- **A captive-portal DNS server** answers all lookups with `192.168.4.1`, so
+  phones pop the sign-in page and the UI loads without typing the IP.
+- **BLE scans are staggered** behind WiFi scans so the radios don't contend.
+
+If you still see drops: keep `AP_CHANNEL` (default 1) on a quiet channel, and if
+you want maximum AP stability over scan coverage, raise `WIFI_SCAN_INTERVAL_MS`
+in `src/config.h`. On phones, choose "stay connected / use without internet" if
+prompted, so the handset doesn't fall back to mobile data.
+
 ## How modes work (radio constraints)
 
 The ESP32-S3 cannot cleanly run WiFi promiscuous/monitor mode *and* normal

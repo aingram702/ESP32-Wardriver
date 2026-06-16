@@ -103,15 +103,18 @@ void setup() {
 void loop() {
     applyPendingMode();
 
+    g_web.loop();                  // service the captive-portal DNS
     g_gps.poll();
 
     if (s_mode == MODE_WARDRIVE) {
         g_wifiScanner.poll();
-        g_bleScanner.poll();
+        // Stagger BLE: don't start a BLE scan while WiFi is off-channel, so the
+        // two radios aren't contending and the AP stays responsive.
+        if (!g_wifiScanner.isScanning()) g_bleScanner.poll();
     }
     // ATTACK mode: sniffer/deauth run via the async web handlers; nothing to
     // pump here. The web server runs in its own task either way.
 
     maybeAutosave();
-    delay(5);                      // yield to WiFi/Async tasks
+    delay(2);                      // yield to WiFi/Async tasks
 }
