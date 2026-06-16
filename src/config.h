@@ -36,11 +36,16 @@
 
 // ---------------------------------------------------------------------------
 //  Scanning behaviour
+//  To keep the SoftAP stable, WiFi scans hop ONE channel per cycle (passive)
+//  instead of abandoning the AP channel for a full ~1.5 s sweep. The AP stays
+//  on its home channel the vast majority of the time.
 // ---------------------------------------------------------------------------
-#define WIFI_SCAN_INTERVAL_MS   4000    // how often to kick a WiFi scan
-#define WIFI_SCAN_PER_CH_MS     120     // dwell time per channel
-#define BLE_SCAN_INTERVAL_MS    6000    // how often to run a BLE scan
-#define BLE_SCAN_DURATION_S     4       // length of each BLE scan
+#define WIFI_SCAN_INTERVAL_MS   1800    // how often to scan the next channel
+#define WIFI_SCAN_PER_CH_MS     200     // dwell time (>=1 beacon interval)
+#define WIFI_SCAN_PASSIVE       true    // passive = far less AP disruption
+#define WIFI_MAX_CHANNEL        13      // top of the 2.4 GHz channel rotation
+#define BLE_SCAN_INTERVAL_MS    8000    // how often to run a BLE scan
+#define BLE_SCAN_DURATION_S     3       // length of each BLE scan
 
 #define MAX_DEVICES         4000        // hard cap on stored unique devices
 #define PACKET_LOG_DEPTH    128         // recent frames kept for the monitor

@@ -9,6 +9,8 @@ WifiScanner g_wifiScanner;
 void WifiScanner::begin() {
     // Scanning needs STA enabled alongside the SoftAP.
     WiFi.mode(WIFI_AP_STA);
+    // Disable WiFi modem power-save: critical for a responsive, stable SoftAP.
+    WiFi.setSleep(false);
 }
 
 void WifiScanner::poll() {
@@ -17,10 +19,14 @@ void WifiScanner::poll() {
     if (!_scanning) {
         if (now - _lastStart >= WIFI_SCAN_INTERVAL_MS) {
             _lastStart = now;
-            // async=true, show_hidden=true, passive=false, per-channel dwell.
-            int rc = WiFi.scanNetworks(true, true, false, WIFI_SCAN_PER_CH_MS);
+            // Scan a SINGLE channel (async). Passive scanning only listens for
+            // beacons, so the radio leaves the AP channel for ~one dwell window
+            // rather than sweeping every channel for >1 s.
+            int rc = WiFi.scanNetworks(/*async*/true, /*hidden*/true,
+                                       /*passive*/WIFI_SCAN_PASSIVE,
+                                       WIFI_SCAN_PER_CH_MS, _channel);
             if (rc == WIFI_SCAN_RUNNING || rc == WIFI_SCAN_FAILED) {
-                _scanning = true;   // treat FAILED as in-flight; harvest clears it
+                _scanning = true;
             }
         }
         return;
@@ -34,6 +40,9 @@ void WifiScanner::poll() {
     _scanning = false;
     _lastDone = now;
     WiFi.scanDelete();
+
+    // Advance to the next channel for the following cycle.
+    if (++_channel > WIFI_MAX_CHANNEL) _channel = 1;
 }
 
 void WifiScanner::harvest() {

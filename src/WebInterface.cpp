@@ -8,10 +8,13 @@
 #include "PacketSniffer.h"
 #include "WifiScanner.h"
 #include <WiFi.h>
+#include <DNSServer.h>
 #include <ESPAsyncWebServer.h>
 
 WebInterface g_web;
 static AsyncWebServer s_server(80);
+static DNSServer      s_dns;
+static const IPAddress AP_IP(192, 168, 4, 1);
 
 // ---- helpers ---------------------------------------------------------------
 static bool authOK(AsyncWebServerRequest* req) {
@@ -175,11 +178,19 @@ static void handleDeauth(AsyncWebServerRequest* req) {
 void WebInterface::begin() {
     if (_started) return;
 
-    // Bring up the SoftAP (WIFI_AP_STA already set by the WiFi scanner).
+    // Pin an explicit SoftAP subnet, then bring up the AP (WIFI_AP_STA was set
+    // by the WiFi scanner, which also disabled modem sleep for AP stability).
+    WiFi.softAPConfig(AP_IP, AP_IP, IPAddress(255, 255, 255, 0));
     WiFi.softAP(AP_SSID, AP_PASSWORD, AP_CHANNEL, AP_HIDDEN, AP_MAX_CLIENTS);
+    WiFi.setSleep(false);          // belt-and-braces: keep the radio awake
     delay(100);
     Serial.printf("[WEB] SoftAP \"%s\" up at http://%s\n",
                   AP_SSID, WiFi.softAPIP().toString().c_str());
+
+    // Captive portal: answer every DNS query with our own IP so phones pop the
+    // sign-in page and the UI is reliably reachable without typing the IP.
+    s_dns.setErrorReplyCode(DNSReplyCode::NoError);
+    s_dns.start(53, "*", AP_IP);
 
     s_server.on("/", HTTP_GET, [](AsyncWebServerRequest* req){
         REQUIRE_AUTH(req);
@@ -199,12 +210,18 @@ void WebInterface::begin() {
     s_server.on("/api/sniff",      HTTP_POST, handleSniff);
     s_server.on("/api/deauth",     HTTP_POST, handleDeauth);
 
+    // Unknown paths (incl. OS captive-portal probes like /generate_204,
+    // /hotspot-detect.html) redirect to the dashboard so the portal triggers.
     s_server.onNotFound([](AsyncWebServerRequest* req){
-        req->send(404, "text/plain", "404");
+        req->redirect("http://192.168.4.1/");
     });
 
     s_server.begin();
     _started = true;
+}
+
+void WebInterface::loop() {
+    if (_started) s_dns.processNextRequest();
 }
 
 String WebInterface::apIp() { return WiFi.softAPIP().toString(); }
