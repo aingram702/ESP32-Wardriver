@@ -1,241 +1,452 @@
-# ESP32-S3 Wardriver
+# ESP32-S3 WarDriver &mdash; WiFi + BLE Recon & Rogue-AP Detector
 
-A WiFi recon platform for the **ESP32-S3-DevKitC-1 (N16R8)**. It scans for
-nearby access points, de-duplicates them by MAC, tags each with signal strength
-/ encryption / a timestamp (and GPS location when a module is attached), flags
-likely **Flock Safety surveillance cameras** as threats, and serves everything
-through a hacker-themed web interface hosted from the device's own WiFi access
-point. It also includes an 802.11 packet monitor and a targeted deauthentication
-tool for **authorised** security testing.
+A self-contained wireless survey appliance for the **ESP32-S3-DevKitC-1 N16R8**
+(16&nbsp;MB flash / 8&nbsp;MB PSRAM). It continuously enumerates nearby **WiFi
+access points** and **Bluetooth LE devices**, logs full details to on-board
+flash, and serves a **hacker-themed web dashboard** straight from the board's
+own WiFi access point &mdash; no internet, app, cloud, or driver required on the
+client side.
 
-> **Note:** Bluetooth/BLE scanning was intentionally removed. On the
-> single-antenna ESP32-S3, running the BT controller alongside the SoftAP forces
-> a WiFi/BT coexistence mode that destabilises the access point. Dropping it
-> gives WiFi the entire radio and a large chunk of RAM back, which is what keeps
-> the AP and web UI stable.
+It was built for a specific defensive use case: **walking your workplace to hunt
+for rogue / "evil-twin" access points** that impersonate your corporate SSIDs.
 
-```
-        ((o))      ESP32-S3 // RF RECON UNIT
-       /  |  \     WiFi  •  GPS-tagged  •  CSV export
-       WiFi  GPS   AP-hosted control plane
-```
+> ⚠️ **Authorised use only.** Scan only networks and premises you have
+> permission to assess. Passive WiFi/BLE scanning is generally lawful, but you
+> are responsible for complying with local law and your employer's policies.
+> This tool only *listens* &mdash; it does not transmit deauth frames, capture
+> traffic, or attack anything.
 
 ---
 
-## ⚖️ Legal & ethical use — read first
+## Table of contents
 
-This project can **transmit deauthentication frames** and **passively capture
-802.11 traffic**. Doing either against networks or devices you do not own, or do
-not have **explicit written authorisation** to test, is illegal in most
-jurisdictions (e.g. the US Computer Fraud and Abuse Act, the UK Computer Misuse
-Act, and equivalents worldwide).
-
-Passive *wardriving* (logging that networks exist) is generally legal; **active
-attacks are not**. Use the attack features only on your own lab equipment or
-under a signed engagement. You are responsible for how you use this.
+- [Features](#features)
+- [Hardware](#hardware)
+- [Quick start (TL;DR)](#quick-start-tldr)
+- [Installation](#installation)
+  - [Prerequisites](#prerequisites)
+  - [Method A — PlatformIO CLI (recommended)](#method-a--platformio-cli-recommended)
+  - [Method B — PlatformIO in VS Code](#method-b--platformio-in-vs-code)
+  - [Method C — Arduino IDE](#method-c--arduino-ide)
+  - [Putting the board into the bootloader](#putting-the-board-into-the-bootloader)
+- [First use](#first-use)
+- [Configuring rogue detection for your site](#configuring-rogue-detection-for-your-site)
+- [Configuration reference](#configuration-reference)
+- [Dashboard tour](#dashboard-tour)
+- [Log files (CSV)](#log-files-csv)
+- [REST / WebSocket API](#rest--websocket-api)
+- [How it works](#how-it-works)
+- [Troubleshooting](#troubleshooting)
+- [Limitations & notes](#limitations--notes)
+- [Project layout](#project-layout)
+- [License](#license)
 
 ---
 
 ## Features
 
-| Feature | Status |
-|---|---|
-| WiFi AP scanning (SSID, BSSID, RSSI, channel, encryption) | ✅ |
-| BLE device scanning | ❌ removed (WiFi/BT coexistence destabilised the AP) |
-| De-duplication by MAC (strongest-RSSI sighting kept) | ✅ |
-| CSV export (SSID, MAC, signal, type, timestamp, GPS, …) | ✅ |
-| Web UI with color-coded WiFi / threat rows | ✅ |
-| Flock camera detection → flagged **DANGEROUS** (red) | ✅ (heuristic, see notes) |
-| Packet monitor with per-type counters | ✅ |
-| Targeted / broadcast deauthentication | ✅ (attack mode) |
-| GPS location logging (ATGM336H / NEO-M8N / NEO-6M) | ✅ (hooks ready, plug & play) |
-| Capture persistence across reboot (LittleFS) | ✅ |
-| Single-binary flash (UI embedded, no filesystem upload) | ✅ |
+- **WiFi survey** &mdash; SSID, BSSID (MAC), RSSI (live + best seen), channel,
+  encryption (OPEN/WEP/WPA/WPA2/WPA3/Enterprise), vendor (OUI lookup),
+  hidden-SSID detection, first/last-seen and hit counts.
+- **Bluetooth LE survey** &mdash; address (public/random), advertised name, RSSI,
+  vendor, manufacturer company ID, appearance, and advertised service UUIDs.
+  *(The ESP32-S3 radio supports Bluetooth **LE** only — not Bluetooth Classic.)*
+- **Rogue-AP / evil-twin detection** &mdash; maintain a whitelist of your
+  legitimate APs (SSID → trusted BSSIDs). Any device broadcasting a trusted SSID
+  from an **unknown BSSID**, or a trusted SSID seen **OPEN/WEP**, raises a red
+  **ALERT**. Heuristics also flag suspicious same-SSID / mismatched-encryption
+  clones as **WATCH**.
+- **Hacker-style web GUI** &mdash; matrix-rain background, glitch title,
+  neon-green terminal aesthetic, live stat counters, sortable/filterable tables,
+  signal bars, severity badges, and a full control panel. Served entirely
+  offline from the device.
+- **Logging** &mdash; every new observation is appended to CSV files on flash
+  (`/wifi_log.csv`, `/ble_log.csv`), auto-rolled at 6&nbsp;MB, downloadable from
+  the dashboard for import into a spreadsheet / SIEM.
+- **Status LED** &mdash; the onboard RGB LED shows state at a glance
+  (green = ready, red = WiFi scan, blue = BLE scan, amber = paused).
+- **Zero client install** &mdash; works from any phone or laptop browser.
 
 ---
 
 ## Hardware
 
-- **Board:** ESP32-S3-DevKitC-1, **N16R8** variant (16 MB flash, 8 MB OPI PSRAM).
-- **GPS (optional, add later):** ATGM336H GPS+BDS module (NEO-M8N/NEO-6M
-  replacement), NMEA over UART @ 9600 baud.
+| Item | Detail |
+|------|--------|
+| Board | ESP32-S3-DevKitC-1 **N16R8** |
+| Flash | 16 MB (QIO) |
+| PSRAM | 8 MB (Octal / OPI) |
+| Radios | WiFi 802.11 b/g/n + Bluetooth **LE** 5.0 |
+| Power | USB-C, or any USB power bank for portable field use |
 
-### GPS wiring (when you add the module)
+No extra wiring is required. Connect to the board's **USB port** (the firmware
+uses native USB-CDC for the serial console). For walk-arounds, a small USB power
+bank turns it into a pocket scanner.
 
-| ATGM336H pin | ESP32-S3 pin | Notes |
-|---|---|---|
-| VCC | 3V3 | 3.3 V |
-| GND | GND | |
-| TX  | GPIO **18** | module TX → ESP RX (`GPS_RX_PIN`) |
-| RX  | GPIO **17** | module RX ← ESP TX (`GPS_TX_PIN`, often unused) |
-
-Pins are configurable in [`src/config.h`](src/config.h). The firmware runs fine
-**without** GPS and starts logging coordinates automatically the moment a module
-is detected.
+> **Other ESP32-S3 boards** work too — if your board has a different flash/PSRAM
+> size (e.g. N8R2) you must edit `platformio.ini` (`board_build.flash_size`,
+> `memory_type`) and possibly the partition table. See
+> [Configuration reference](#configuration-reference).
 
 ---
 
-## Quick start (PlatformIO — recommended)
+## Quick start (TL;DR)
 
-1. Install [PlatformIO](https://platformio.org/install) (VS Code extension or
-   `pip install platformio`).
-2. Clone this repo and open the folder.
-3. Connect the board's **UART** port via USB.
-4. Build & flash (libraries download automatically on first build):
+```bash
+git clone https://github.com/aingram702/esp32-s3-wardriver.git
+cd esp32-s3-wardriver
+pip install -U platformio          # if you don't already have PlatformIO
+pio run -t upload                  # compile + flash over USB
+pio device monitor                 # watch the serial log (115200 baud)
+```
+
+Then join WiFi **`WARDRIVER`** (password **`roguehunter`**) and browse to
+**http://192.168.4.1/**.
+
+---
+
+## Installation
+
+### Prerequisites
+
+- A **USB-C data cable** (not a charge-only cable) between the board and your
+  computer.
+- One toolchain from the methods below. **PlatformIO is strongly recommended** —
+  it pins the exact board settings, partition table, and library versions
+  automatically, so the build "just works".
+- **USB drivers:** the DevKitC-1 exposes a *native USB* port and a *UART* port
+  (via a CH343/CP210x bridge, depending on revision).
+  - On **Linux**, native USB works out of the box; add yourself to the
+    `dialout` group (`sudo usermod -aG dialout $USER`, then log out/in) to access
+    serial ports without `sudo`.
+  - On **macOS**, native USB works out of the box; for the UART port install the
+    [CP210x](https://www.silabs.com/developer-tools/usb-to-uart-bridge-vcp-drivers)
+    or [CH34x](https://www.wch-ic.com/downloads/CH341SER_MAC_ZIP.html) driver.
+  - On **Windows**, install the matching CP210x/CH34x driver if the port doesn't
+    enumerate. PlatformIO can also auto-install drivers.
+
+> **Which USB port?** The DevKitC-1 has two USB-C jacks labelled **USB** (native,
+> used by this firmware for the console) and **UART** (the serial bridge). Either
+> can be used to flash. If flashing fails on one, try the other.
+
+---
+
+### Method A — PlatformIO CLI (recommended)
+
+1. **Install PlatformIO Core** (needs Python 3.6+):
+
+   ```bash
+   pip install -U platformio
+   # or, isolated:  pipx install platformio
+   ```
+
+   Verify: `pio --version`.
+
+2. **Clone and enter the project:**
+
+   ```bash
+   git clone https://github.com/aingram702/esp32-s3-wardriver.git
+   cd esp32-s3-wardriver
+   ```
+
+3. **(Optional) edit settings** in [`src/config.h`](src/config.h) — AP name /
+   password, optional home-WiFi join, scan timing. See
+   [Configuration reference](#configuration-reference).
+
+4. **Build** (downloads the ESP32 toolchain + libraries on first run — this can
+   take a few minutes):
+
+   ```bash
+   pio run
+   ```
+
+5. **Flash over USB.** Plug the board in, then:
 
    ```bash
    pio run -t upload
-   pio device monitor        # optional: watch the boot log @115200
    ```
 
-That's it — the web UI is embedded in the firmware, so there is **no separate
-filesystem upload step**.
+   PlatformIO auto-detects the port. To force one:
+   `pio run -t upload --upload-port /dev/ttyACM0` (Linux),
+   `... --upload-port COM5` (Windows), or `... --upload-port /dev/cu.usbmodem*`
+   (macOS). If upload doesn't start, see
+   [Putting the board into the bootloader](#putting-the-board-into-the-bootloader).
 
-### Arduino IDE (alternative)
+6. **Open the serial console** to watch it boot and print its IP:
 
-Prefer PlatformIO, but if you must use the Arduino IDE:
+   ```bash
+   pio device monitor
+   ```
 
-1. Install the **esp32 by Espressif** board package (Boards Manager).
-2. Install libraries: *ESPAsyncWebServer* + *AsyncTCP* (the
-   [ESP32Async](https://github.com/ESP32Async) forks), *TinyGPSPlus*.
-3. Select **ESP32S3 Dev Module**, set Flash 16 MB, **PSRAM: OPI PSRAM**,
-   Partition Scheme with ≥4 MB app.
-4. Move the `src/*` files into a sketch folder (rename `main.cpp` → the sketch
-   `.ino`) and upload.
+   You should see the SoftAP address (`http://192.168.4.1/`) and "Scanning
+   engaged."
 
----
+> The web UI is embedded in the firmware (PROGMEM), so there is **no separate
+> filesystem-upload step**. The LittleFS partition is used only for CSV logs and
+> the whitelist, and is formatted automatically on first boot.
 
-## First-time setup
+#### Useful CLI commands
 
-1. After flashing, the device hosts a WiFi network:
-   - **SSID:** `Wardriver`
-   - **Password:** `wardrive-me`  ← **change this** in `src/config.h`
-2. Connect your phone/laptop to it.
-3. Open **http://192.168.4.1** in a browser.
-
-### Security hardening (do this)
-
-Defaults are set up to be safe-ish, but before real use, in `src/config.h`:
-
-- **Change `AP_PASSWORD`** (WPA2, 8–63 chars). The default lets anyone nearby
-  control the radio.
-- Optionally enable HTTP login: set `WEB_AUTH_ENABLED true` and a strong
-  `WEB_AUTH_PASS`.
+| Command | Purpose |
+|---------|---------|
+| `pio run` | Compile only |
+| `pio run -t upload` | Compile + flash |
+| `pio device monitor` | Serial console (115200 baud) |
+| `pio run -t upload -t monitor` | Flash then immediately monitor |
+| `pio run -t clean` | Clean build artifacts |
+| `pio run -t erase` | Full chip erase (wipes logs + whitelist) |
+| `pio check` | Static analysis (cppcheck) |
 
 ---
 
-## Using the web interface
+### Method B — PlatformIO in VS Code
 
-- **WARDRIVE / ATTACK** toggle (top right) switches operating mode. They are
-  mutually exclusive because monitor mode and active scanning contend for the
-  radio.
-- **DISCOVERED tab** — live, de-duplicated device list. Filter/sort, color key:
-  - <span>🟢</span> **WiFi**  •  <span>🔴</span> **THREAT** (e.g. Flock camera, blinking)
-  - **EXPORT CSV** downloads everything; **CLEAR** wipes the store.
-- **PACKET MONITOR tab** (ATTACK mode) — per-type frame counters
-  (mgmt/data/ctrl/beacon/probe/deauth/EAPOL), a live recent-frames table, a
-  channel selector, and the deauth tool.
-- **SYSTEM tab** — GPS state, AP details, and notes.
-
-### CSV columns
-
-`SSID, MAC, SignalStrength(dBm), Type, Channel, Encryption, Vendor, Dangerous,
-Threat, Hits, FirstSeenUTC, Latitude, Longitude`
-
-Timestamps are ISO-8601 UTC when a GPS time fix is available. Fields are guarded
-against CSV/formula injection.
+1. Install **[VS Code](https://code.visualstudio.com/)**.
+2. In the Extensions panel, install **"PlatformIO IDE"**. Let it finish its
+   first-run setup.
+3. **File → Open Folder…** and select the cloned `esp32-s3-wardriver` directory.
+4. Click the **PlatformIO alien icon** in the sidebar to see project tasks, or
+   use the bottom toolbar:
+   - **✓ (Build)** — compile.
+   - **→ (Upload)** — compile + flash.
+   - **🔌 (Serial Monitor)** — open the console.
+5. The default environment (`esp32-s3-devkitc-1-n16r8`) is already selected via
+   `platformio.ini`; no manual board configuration is needed.
 
 ---
 
-## Flock camera detection — how it works (and its limits)
+### Method C — Arduino IDE
 
-Detection lives in [`src/flock_data.h`](src/flock_data.h) /
-[`src/FlockDetector.cpp`](src/FlockDetector.cpp) and uses two signals:
+PlatformIO is recommended, but if you prefer the Arduino IDE:
 
-1. **MAC OUI prefixes** — highest confidence, but you must populate the list
-   with prefixes you have **verified** in the field (the shipped list is an
-   empty framework, because publishing unverified OUIs causes false alarms).
-2. **SSID / BLE-name heuristics** — matches tokens like `flock`, `falcon`,
-   `penguin` seen during install/maintenance modes. These are flagged as
-   `FLOCK CAMERA?` (the `?` denotes a heuristic, not an OUI-confirmed hit).
+1. Install the **ESP32 board package** (Boards Manager → "esp32" by Espressif,
+   v3.x).
+2. Install these libraries via **Library Manager**:
+   - `ArduinoJson` (v7.x)
+   - `NimBLE-Arduino` (v1.4.x)
+   - `ESPAsyncWebServer` and `AsyncTCP` — install the **ESP32Async** forks
+     (the most actively maintained; from their GitHub releases if not in the
+     Library Manager).
+3. Copy the contents of `src/` into a sketch folder and rename `main.cpp` →
+   `esp32-s3-wardriver.ino` (keep the other `.h` files alongside it).
+4. Select **Tools → Board → ESP32S3 Dev Module**, then set:
+   - **Flash Size:** `16MB (128Mb)`
+   - **PSRAM:** `OPI PSRAM`
+   - **Partition Scheme:** a 16 MB scheme with a large SPIFFS/app split (or add
+     `partitions_16mb.csv` as a custom partition table)
+   - **USB CDC On Boot:** `Enabled`
+   - **Upload Speed:** `921600`
+5. Select the port and click **Upload**.
 
-**Honest caveat:** Flock ALPR cameras are mostly solar + LTE devices and don't
-reliably broadcast WiFi during normal operation, so purely passive RF detection
-is **not guaranteed**. Treat flags as leads to verify, and contribute confirmed
-signatures back into `flock_data.h`. See the community
-[DeFlock](https://deflock.me) project for crowd-sourced camera locations.
-
----
-
-## Troubleshooting: unstable AP / can't load the page
-
-In `WIFI_AP_STA` mode the AP and the scanner share one radio, so a naive full
-channel sweep drags the AP off its channel for >1 s and clients drop. This
-firmware avoids that:
-
-- **Modem power-save is disabled** (`WiFi.setSleep(false)`) so the AP stays
-  responsive — the single biggest fix for a hanging web UI.
-- **Scans hop one channel per cycle** (passive), keeping the AP on its home
-  channel ~90% of the time instead of blacking out during a full sweep.
-- **A captive-portal DNS server** answers all lookups with `192.168.4.1`, so
-  phones pop the sign-in page and the UI loads without typing the IP.
-- **Bluetooth is removed**, so the BT controller never contends with WiFi for
-  the shared antenna — the biggest stability win.
-
-If you still see drops: keep `AP_CHANNEL` (default 1) on a quiet channel, and if
-you want maximum AP stability over scan coverage, raise `WIFI_SCAN_INTERVAL_MS`
-in `src/config.h`. On phones, choose "stay connected / use without internet" if
-prompted, so the handset doesn't fall back to mobile data.
-
-## How modes work (radio constraints)
-
-The ESP32-S3 cannot cleanly run WiFi promiscuous/monitor mode *and* normal
-AP + active scanning simultaneously. So:
-
-- **WARDRIVE:** SoftAP + WiFi scanning + GPS + full UI.
-- **ATTACK:** promiscuous capture / deauth on a chosen channel. If the sniff
-  channel differs from the AP channel, your browser may briefly disconnect while
-  the radio is on the other channel — reconnect and the captured data is waiting.
+> Arduino-IDE builds are less reproducible than PlatformIO because board options
+> and library versions are set by hand. If something behaves oddly, prefer
+> Method A.
 
 ---
 
-## Security notes (firmware itself)
+### Putting the board into the bootloader
 
-- WPA2-protected AP by default; optional HTTP basic-auth.
-- All web inputs validated (MAC format, channel range, burst clamp).
-- Attacker-controlled SSIDs/names are JSON-escaped server-side and rendered with
-  `textContent` (never `innerHTML`) to prevent stored XSS in the dashboard.
-- CSV/TSV outputs are injection-guarded.
-- Shared device store is mutex-protected; packet counters use a critical
-  section. Device count is hard-capped (`MAX_DEVICES`) to bound memory.
+Most uploads work automatically. If `pio run -t upload` stalls at
+*"Connecting…"*:
+
+1. Hold the **BOOT** button.
+2. Tap (press and release) the **RESET/EN** button.
+3. Release **BOOT**.
+4. Re-run the upload. After flashing, press **RESET** once to run the firmware.
+
+If the port never appears, try the other USB-C jack and confirm your cable
+carries data.
+
+---
+
+## First use
+
+1. Flash the board and power it on (USB or power bank).
+2. On your phone/laptop, join the WiFi network:
+   - **SSID:** `WARDRIVER`
+   - **Password:** `roguehunter`
+3. Browse to **http://192.168.4.1/** (some phones auto-open a captive-portal
+   prompt — choose "use this network as-is" / open the browser manually).
+4. Scanning starts automatically. Watch the **WIFI** and **BLUETOOTH** tabs
+   populate within a few seconds.
+
+If you set `STA_SSID` in `config.h` to join your LAN, you can instead browse to
+**http://wardriver.local/** from a device on that network.
+
+---
+
+## Configuring rogue detection for your site
+
+The detector knows nothing about *your* legitimate APs until you tell it. Build
+the whitelist once:
+
+1. While on-site near a **known-good** corporate AP, open the **WIFI** tab.
+2. Click the **★** next to each legitimate AP row to mark its exact BSSID as
+   trusted. Do this for every real AP broadcasting each SSID you want to
+   protect (enterprise SSIDs are usually served by many BSSIDs — add them all).
+   - Or add them by hand under the **WHITELIST** tab (`SSID` + `BSSID`).
+3. From then on, any AP broadcasting one of those SSIDs from a **different
+   BSSID** lights up as a red **ALERT** in the **ROGUE** tab &mdash; that's your
+   evil twin. A trusted SSID appearing **OPEN/WEP** also alerts.
+
+The whitelist persists across reboots (stored in `/whitelist.json` on flash).
+
+> **Tip:** capture a clean baseline first. Walk the building once with no
+> alerts expected, whitelist everything legitimate, *then* the alerts you see
+> afterwards are the ones worth investigating.
+
+---
+
+## Configuration reference
+
+Edit [`src/config.h`](src/config.h) before building. Key settings:
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `AP_SSID` / `AP_PASSWORD` | `WARDRIVER` / `roguehunter` | The dashboard's own WiFi name & password (≥ 8 chars, or `""` for an open AP). |
+| `AP_CHANNEL` | `6` | SoftAP channel. |
+| `STA_SSID` / `STA_PASSWORD` | `""` | Optionally also join an existing WiFi so you can reach the dashboard over your LAN. Empty = pure Access-Point mode. |
+| `MDNS_HOSTNAME` | `wardriver` | `http://<name>.local/` when on STA. |
+| `BLE_SCAN_SECONDS` | `5` | BLE listen window per cycle. |
+| `WIFI_SCAN_CHANNEL_DWELL_MS` | `120` | Per-channel dwell time for the WiFi sweep. |
+| `CYCLE_PAUSE_MS` | `250` | Pause between full scan cycles. |
+| `MAX_WIFI_APS` / `MAX_BLE_DEVS` | `300` | In-RAM table caps (oldest dropped first). |
+| `LOG_TO_FLASH` | `true` | Enable/disable CSV logging. |
+| `LOG_MAX_BYTES` | `6 MB` | Roll the log to `*.1` once it exceeds this. |
+| `STATUS_LED_PIN` / `STATUS_LED_ON` | `48` / `true` | Onboard RGB LED. |
+
+**Adapting to a different board:** change `board`, `board_build.flash_size`,
+and `board_build.arduino.memory_type` in `platformio.ini`. For non-16 MB flash,
+also adjust `partitions_16mb.csv` (the data partition must be **labelled
+`spiffs`** for LittleFS to mount it).
+
+---
+
+## Dashboard tour
+
+| Area | What it does |
+|------|--------------|
+| **Header** | Live status dot (red = scanning, green = idle between cycles, amber = paused), AP/STA IP, uptime. |
+| **Stat cards** | Live counts of WiFi APs, BLE devices, rogue alerts, scan cycles, connected clients, free PSRAM. |
+| **Control bar** | Start/stop scanning, toggle WiFi/BLE phases, live text filter, clear tables. |
+| **WIFI tab** | Sortable table with signal bars, encryption badges, vendor, hit count, status, and a ★ to trust an AP. |
+| **ROGUE tab** | Only flagged APs, with severity and a plain-English reason. |
+| **BLUETOOTH tab** | BLE devices: name, address, type, RSSI, vendor, manufacturer, services. |
+| **WHITELIST tab** | Add/remove trusted SSID→BSSID pairs. |
+| **LOGS tab** | Download the WiFi/BLE CSV logs, or wipe them. |
+
+Tables sort by clicking column headers; the filter box matches any field.
+
+---
+
+## Log files (CSV)
+
+Stored on the LittleFS partition and downloadable from the **LOGS** tab (or
+`/api/logs/wifi`, `/api/logs/ble`). Timestamps are seconds since boot (the S3 has
+no real-time clock).
+
+**`/wifi_log.csv`**
+
+```
+uptime_s,ssid,bssid,rssi,channel,encryption,vendor,hidden,severity,reason
+```
+
+**`/ble_log.csv`**
+
+```
+uptime_s,address,addr_type,name,rssi,vendor,manufacturer,appearance,services
+```
+
+By default each device is logged on its **first sighting**; flagged APs are
+re-logged on every cycle they're seen so you get a timeline of rogue activity.
+Files auto-roll to `*.csv.1` past `LOG_MAX_BYTES`.
+
+---
+
+## REST / WebSocket API
+
+The dashboard is just a client of a small JSON API you can script against:
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET  | `/api/status` | device + scan stats |
+| GET  | `/api/wifi` | current WiFi AP list |
+| GET  | `/api/ble` | current BLE device list |
+| GET  | `/api/rogues` | flagged APs only |
+| POST | `/api/control` | `scanning` / `wifi` / `ble` = `0`/`1` |
+| POST | `/api/clear` | `what=wifi\|ble\|all` |
+| GET  | `/api/whitelist` | trusted SSID→BSSID map |
+| POST | `/api/whitelist` | `action=add\|remove&ssid=…&bssid=…` |
+| GET  | `/api/logs/wifi` · `/api/logs/ble` | download CSV |
+| DELETE | `/api/logs` | wipe logs |
+| WS   | `/ws` | live status push (one message per scan cycle) |
+
+Example:
+
+```bash
+curl http://192.168.4.1/api/rogues
+curl -X POST http://192.168.4.1/api/whitelist \
+     -d 'action=add&ssid=BankCorp-WiFi&bssid=aa:bb:cc:dd:ee:ff'
+```
+
+---
+
+## How it works
+
+WiFi and BLE share a single radio on the ESP32-S3, so the firmware scans them
+**sequentially** in a loop: a non-blocking WiFi channel sweep, then a timed BLE
+advertisement scan, then repeat. Results are de-duplicated by BSSID/address in
+PSRAM-backed maps, evaluated by the rogue detector, pushed to any connected
+dashboards over WebSocket, and appended to the CSV logs. A FreeRTOS mutex guards
+the shared tables between the scan loop, the BLE callback task, and the async
+web server.
+
+---
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| Upload stalls at *"Connecting…"* | Enter the bootloader manually (hold **BOOT**, tap **RESET**, release **BOOT**), then retry. Try the other USB-C port / a data cable. |
+| Port not found | Install the CP210x/CH34x driver (Windows/macOS); add yourself to `dialout` (Linux). |
+| Dashboard won't load | Confirm you're on the `WARDRIVER` network and using `http://` (not `https://`) at `192.168.4.1`. Disable mobile data so the phone doesn't route around the AP. |
+| Client briefly drops during scans | Expected — the radio leaves the AP channel during each WiFi sweep. The UI auto-reconnects. |
+| `LittleFS mount failed` on first boot | Normal once; it auto-formats and works on the next boot. If persistent, run `pio run -t erase` and re-flash. |
+| Build error on `ESPAsyncWebServer` | Ensure the **ESP32Async** forks are used (pinned in `platformio.ini`); run `pio pkg update`. |
+| Few/no BLE devices | Many phones randomise their MAC and advertise rarely — that's normal. Beacons, wearables and BLE peripherals show up reliably. |
+
+---
+
+## Limitations & notes
+
+- **Bluetooth LE only.** The ESP32-S3 has no Bluetooth Classic radio, so
+  Classic-only devices (some headsets, older peripherals) won't appear.
+- **No GPS/RTC on board.** Timestamps are uptime-relative. For true wardriving
+  with coordinates, wire up a UART GPS module and extend `writeWifiLine()` —
+  a natural next step.
+- **Scanning, not monitor mode.** WiFi data comes from `scanNetworks()`
+  (beacons/probe responses). It does **not** do raw 802.11 monitor-mode capture;
+  for deauth-attack detection you'd switch to `esp_wifi` promiscuous mode.
+- **Channel hopping disrupts the SoftAP** briefly during each WiFi sweep —
+  harmless, the dashboard reconnects automatically.
 
 ---
 
 ## Project layout
 
 ```
-platformio.ini        Board + library config (N16R8: 16 MB flash, 8 MB PSRAM)
-partitions.csv        16 MB partition table
+platformio.ini        build config (board, partitions, libraries, pio check)
+partitions_16mb.csv   16 MB partition table (2×3 MB OTA + ~9.8 MB LittleFS)
 src/
-  config.h            Pins, AP creds, tunables  ← edit me
-  types.h             Device model + helpers
-  flock_data.h        Flock OUI / name signatures (update with field data)
-  FlockDetector.*     Threat classification
-  NetworkStore.*      De-dup store + JSON/CSV/persistence
-  GpsModule.*         NMEA GPS (optional hardware)
-  WifiScanner.*       Non-blocking WiFi scanning
-  PacketSniffer.*     Promiscuous capture, counters, deauth
-  WebInterface.*      Async HTTP UI + JSON/CSV API
-  web_assets.h        Embedded single-page UI
-  Modes.h             Operating-mode contract
-  main.cpp            Orchestration + mode manager
+  config.h            user-editable settings
+  models.h            WiFi/BLE data structures + helpers
+  oui.h               built-in MAC → vendor lookup
+  web_assets.h        the dashboard (HTML/CSS/JS) in PROGMEM
+  main.cpp            scanners, rogue detector, web server, main loop
 ```
 
 ---
 
-## Roadmap ideas
+## License
 
-- Reconstruct AP↔client associations to enable smarter targeted deauth.
-- WiGLE-compatible CSV export.
-- On-board OLED status display.
-- Channel-hopping capture with a ring buffer of full frames (PCAP export).
+MIT &mdash; provided as-is for authorised security testing and education.

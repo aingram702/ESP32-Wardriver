@@ -1,270 +1,446 @@
-// ============================================================================
-//  web_assets.h  -  The entire web UI embedded as a single PROGMEM string so
-//  the firmware flashes as ONE binary (no separate filesystem upload step).
-//  Hacker/terminal aesthetic: dark CRT-green theme, radar logo, color-coded
-//  rows. SSIDs are rendered with textContent only (never innerHTML) to defeat
-//  XSS from hostile network names.
-// ============================================================================
+// ===========================================================================
+//  web_assets.h  —  Hacker-themed dashboard (HTML/CSS/JS) stored in PROGMEM.
+//  Served by the AsyncWebServer. No external CDN dependencies => works fully
+//  offline from the device's own SoftAP.
+// ===========================================================================
 #pragma once
 #include <Arduino.h>
 
-static const char INDEX_HTML[] PROGMEM = R"=====(<!DOCTYPE html>
+static const char INDEX_HTML[] PROGMEM = R"HTMLDOC(
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ESP32 // WARDRIVER</title>
-<style>
-:root{--bg:#04080a;--panel:#0a1014;--edge:#10301c;--fg:#39ff14;--dim:#1f7a3a;
---cyan:#22d3ee;--red:#ff2b3e;--amber:#ffb300;--mut:#5b6b60;}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);
-font-family:"JetBrains Mono",Consolas,Menlo,monospace;font-size:14px}
-body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:9;
-background:repeating-linear-gradient(0deg,rgba(0,0,0,0),rgba(0,0,0,0) 2px,
-rgba(0,20,0,.25) 3px);opacity:.35}
-header{display:flex;align-items:center;gap:14px;padding:12px 18px;
-border-bottom:1px solid var(--edge);background:linear-gradient(180deg,#06120a,#04080a)}
-.logo{width:38px;height:38px;filter:drop-shadow(0 0 6px var(--fg))}
-h1{font-size:18px;margin:0;letter-spacing:3px;text-shadow:0 0 8px var(--dim)}
-h1 small{color:var(--mut);letter-spacing:1px;font-size:11px;display:block}
-.spacer{flex:1}
-.mode{display:flex;border:1px solid var(--edge);border-radius:6px;overflow:hidden}
-.mode button{background:transparent;color:var(--mut);border:0;padding:8px 14px;
-cursor:pointer;font-family:inherit;font-size:13px}
-.mode button.on{background:var(--fg);color:#04080a;font-weight:700}
-.mode button.on.atk{background:var(--red);color:#fff}
-.bar{display:flex;flex-wrap:wrap;gap:10px;padding:10px 18px;border-bottom:1px solid var(--edge);
-background:var(--panel)}
-.stat{border:1px solid var(--edge);border-radius:6px;padding:6px 12px;min-width:96px}
-.stat .k{color:var(--mut);font-size:10px;letter-spacing:1px}
-.stat .v{font-size:18px;text-shadow:0 0 6px var(--dim)}
-.stat.red .v{color:var(--red);text-shadow:0 0 8px var(--red)}
-nav{display:flex;gap:4px;padding:8px 18px;border-bottom:1px solid var(--edge)}
-nav button{background:transparent;border:1px solid var(--edge);color:var(--mut);
-padding:6px 14px;border-radius:6px 6px 0 0;cursor:pointer;font-family:inherit}
-nav button.on{color:var(--fg);border-bottom-color:var(--bg);background:var(--panel)}
-main{padding:16px 18px 60px}
-.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
-input,select{background:#02110a;border:1px solid var(--edge);color:var(--fg);
-padding:7px 10px;border-radius:5px;font-family:inherit}
-.btn{background:var(--fg);color:#04080a;border:0;padding:8px 14px;border-radius:5px;
-cursor:pointer;font-family:inherit;font-weight:700}
-.btn.ghost{background:transparent;color:var(--fg);border:1px solid var(--fg)}
-.btn.red{background:var(--red);color:#fff}
-.btn.amber{background:var(--amber);color:#04080a}
-table{width:100%;border-collapse:collapse;font-size:12.5px}
-th,td{text-align:left;padding:7px 9px;border-bottom:1px solid #0c1d12;white-space:nowrap}
-th{color:var(--mut);position:sticky;top:0;background:var(--panel);cursor:pointer;
-font-size:11px;letter-spacing:1px}
-td.ssid{white-space:normal;max-width:260px;word-break:break-all}
-tr.wifi td:first-child{border-left:3px solid var(--fg)}
-tr.ble td:first-child{border-left:3px solid var(--cyan)}
-tr.ble{color:var(--cyan)}
-tr.danger{background:rgba(255,43,62,.12);color:var(--red);
-animation:blink 1.4s steps(2,start) infinite}
-tr.danger td:first-child{border-left:3px solid var(--red)}
-@keyframes blink{50%{background:rgba(255,43,62,.03)}}
-.tag{font-size:10px;padding:1px 6px;border:1px solid currentColor;border-radius:4px}
-.hidden{display:none}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px}
-.muted{color:var(--mut)}
-.note{color:var(--amber);font-size:12px;border:1px dashed var(--amber);
-padding:8px 10px;border-radius:6px;margin-bottom:12px}
-footer{position:fixed;bottom:0;left:0;right:0;background:#06120a;
-border-top:1px solid var(--edge);padding:4px 18px;font-size:11px;color:var(--mut);
-display:flex;gap:18px}
-a{color:var(--cyan)}
-</style></head>
+<title>WARDRIVER :: rogue-ap recon</title>
+<link rel="stylesheet" href="/style.css">
+</head>
 <body>
-<header>
-<svg class="logo" viewBox="0 0 64 64" fill="none" stroke="#39ff14" stroke-width="2">
-<circle cx="32" cy="32" r="28"/><circle cx="32" cy="32" r="18"/>
-<circle cx="32" cy="32" r="8"/><line x1="32" y1="32" x2="58" y2="14"/>
-<circle cx="32" cy="32" r="2.5" fill="#39ff14"/></svg>
-<h1>WARDRIVER<small>ESP32-S3 // RF RECON UNIT</small></h1>
-<div class="spacer"></div>
-<div class="mode">
-<button id="mWar" class="on" onclick="setMode('wardrive')">WARDRIVE</button>
-<button id="mAtk" onclick="setMode('attack')">ATTACK</button>
-</div>
+<canvas id="matrix"></canvas>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">&#9608;</span>
+    <h1 class="glitch" data-text="WARDRIVER">WARDRIVER</h1>
+    <span class="ver" id="fwver">v0.0</span>
+  </div>
+  <div class="statusline">
+    <span class="dot" id="scanDot"></span>
+    <span id="scanState">BOOT</span>
+    <span class="sep">|</span>
+    <span id="ipInfo">--</span>
+    <span class="sep">|</span>
+    <span id="uptime">0s</span>
+  </div>
 </header>
 
-<div class="bar">
-<div class="stat"><div class="k">DEVICES</div><div class="v" id="sDev">0</div></div>
-<div class="stat"><div class="k">WIFI APs</div><div class="v" id="sWifi">0</div></div>
-<div class="stat red"><div class="k">THREATS</div><div class="v" id="sThreat">0</div></div>
-<div class="stat"><div class="k">GPS</div><div class="v" id="sGps">--</div></div>
-<div class="stat"><div class="k">UPTIME</div><div class="v" id="sUp">0s</div></div>
-<div class="stat"><div class="k">HEAP KB</div><div class="v" id="sHeap">0</div></div>
-</div>
+<section class="stats">
+  <div class="stat"><div class="k">WIFI APS</div><div class="v" id="sWifi">0</div></div>
+  <div class="stat"><div class="k">BLE DEVS</div><div class="v" id="sBle">0</div></div>
+  <div class="stat alert"><div class="k">ROGUE ALERTS</div><div class="v" id="sRogue">0</div></div>
+  <div class="stat"><div class="k">CYCLES</div><div class="v" id="sCycles">0</div></div>
+  <div class="stat"><div class="k">CLIENTS</div><div class="v" id="sClients">0</div></div>
+  <div class="stat"><div class="k">FREE PSRAM</div><div class="v" id="sPsram">0</div></div>
+</section>
 
-<nav>
-<button id="tabDev" class="on" onclick="tab('dev')">DISCOVERED</button>
-<button id="tabPkt" onclick="tab('pkt')">PACKET MONITOR</button>
-<button id="tabInfo" onclick="tab('info')">SYSTEM</button>
+<section class="control">
+  <button class="btn" id="btnScan">&#9632; STOP SCAN</button>
+  <label class="tgl"><input type="checkbox" id="tgWifi" checked> WIFI</label>
+  <label class="tgl"><input type="checkbox" id="tgBle" checked> BLE</label>
+  <span class="spacer"></span>
+  <input type="text" id="filter" class="filt" placeholder="&#128269; filter...">
+  <button class="btn ghost" id="btnClearWifi">CLR WIFI</button>
+  <button class="btn ghost" id="btnClearBle">CLR BLE</button>
+</section>
+
+<nav class="tabs">
+  <button class="tab active" data-tab="wifi">WIFI <span class="cnt" id="tWifi">0</span></button>
+  <button class="tab" data-tab="rogue">ROGUE <span class="cnt warn" id="tRogue">0</span></button>
+  <button class="tab" data-tab="ble">BLUETOOTH <span class="cnt" id="tBle">0</span></button>
+  <button class="tab" data-tab="white">WHITELIST</button>
+  <button class="tab" data-tab="logs">LOGS</button>
 </nav>
 
 <main>
-<!-- DEVICES -->
-<section id="vDev">
-  <div class="row">
-    <input id="filter" placeholder="filter ssid / mac / vendor..." oninput="render()">
-    <select id="ftype" onchange="render()">
-      <option value="">all networks</option><option value="danger">threats only</option>
-    </select>
-    <span class="spacer" style="flex:1"></span>
-    <a class="btn" href="/api/export.csv" download="wardrive.csv">EXPORT CSV</a>
-    <button class="btn ghost" onclick="clearAll()">CLEAR</button>
-  </div>
-  <div style="overflow:auto;max-height:64vh">
-  <table id="tbl"><thead><tr>
-    <th onclick="sortBy('ssid')">SSID / NAME</th><th onclick="sortBy('mac')">MAC</th>
-    <th onclick="sortBy('rssi')">RSSI</th><th onclick="sortBy('type')">TYPE</th>
-    <th onclick="sortBy('channel')">CH</th><th>ENC</th><th>VENDOR</th>
-    <th onclick="sortBy('hits')">HITS</th><th>GPS</th></tr></thead>
-  <tbody id="rows"></tbody></table></div>
-</section>
+  <!-- WIFI -->
+  <section class="panel active" id="panel-wifi">
+    <table class="grid" id="wifiTable">
+      <thead><tr>
+        <th data-s="ssid">SSID</th><th data-s="bssid">BSSID</th>
+        <th data-s="rssi">RSSI</th><th>SIGNAL</th>
+        <th data-s="channel">CH</th><th data-s="enc">ENCRYPTION</th>
+        <th data-s="vendor">VENDOR</th><th data-s="seen">SEEN</th><th>STATUS</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
 
-<!-- PACKETS -->
-<section id="vPkt" class="hidden">
-  <div id="atkOff" class="note">Switch to <b>ATTACK</b> mode to enable the packet
-   monitor and deauth tools. Scanning pauses while attacking.</div>
-  <div class="row">
-    <label>CH <select id="chan" onchange="setChan()"></select></label>
-    <button class="btn" id="snBtn" onclick="toggleSniff()">START SNIFF</button>
-    <button class="btn ghost" onclick="resetPkt()">RESET COUNTERS</button>
-  </div>
-  <div class="grid" style="margin-bottom:14px">
-    <div class="stat"><div class="k">TOTAL</div><div class="v" id="pTot">0</div></div>
-    <div class="stat"><div class="k">MGMT</div><div class="v" id="pMgmt">0</div></div>
-    <div class="stat"><div class="k">DATA</div><div class="v" id="pData">0</div></div>
-    <div class="stat"><div class="k">CTRL</div><div class="v" id="pCtrl">0</div></div>
-    <div class="stat"><div class="k">BEACON</div><div class="v" id="pBeac">0</div></div>
-    <div class="stat"><div class="k">PROBE</div><div class="v" id="pProbe">0</div></div>
-    <div class="stat red"><div class="k">DEAUTH</div><div class="v" id="pDeau">0</div></div>
-    <div class="stat"><div class="k">EAPOL</div><div class="v" id="pEap">0</div></div>
-  </div>
-  <div class="note">DEAUTH transmits 802.11 deauthentication frames. Use ONLY on
-   networks you own or are authorised to test &mdash; doing otherwise is illegal.</div>
-  <div class="row">
-    <input id="apMac" placeholder="target AP BSSID AA:BB:CC:DD:EE:FF" size="26">
-    <input id="clMac" placeholder="client MAC (blank = all clients)" size="26">
-    <input id="bursts" type="number" value="20" min="1" max="500" style="width:80px">
-    <button class="btn red" onclick="deauth()">DEAUTH</button>
-  </div>
-  <div style="overflow:auto;max-height:42vh">
-  <table><thead><tr><th>T(ms)</th><th>KIND</th><th>SRC</th><th>DST</th>
-   <th>CH</th><th>RSSI</th></tr></thead><tbody id="pkts"></tbody></table></div>
-</section>
+  <!-- ROGUE -->
+  <section class="panel" id="panel-rogue">
+    <p class="hint">Evil-twin &amp; impersonation alerts. Add trusted APs under WHITELIST so the
+       detector knows your bank's legitimate BSSIDs &mdash; anything else broadcasting those
+       SSIDs is flagged.</p>
+    <table class="grid" id="rogueTable">
+      <thead><tr>
+        <th>SEV</th><th>SSID</th><th>BSSID</th><th>RSSI</th><th>CH</th>
+        <th>ENC</th><th>VENDOR</th><th>REASON</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
 
-<!-- INFO -->
-<section id="vInfo" class="hidden">
-  <p class="muted">ESP32-S3 Wardriver &mdash; WiFi recon, GPS-tagged,
-   CSV export. AP-hosted control plane.</p>
-  <ul class="muted">
-   <li>Color key: <span style="color:var(--fg)">WiFi</span> /
-       <span style="color:var(--red)">THREAT (e.g. Flock camera)</span></li>
-   <li id="iGps">GPS: unknown</li><li id="iAp">AP: --</li>
-   <li>Duplicates are merged by MAC; RSSI shows the strongest sighting.</li>
-  </ul>
-  <p class="muted">Flock detection uses MAC-OUI + name heuristics and must be
-   field-verified. Update <code>flock_data.h</code> with confirmed signatures.</p>
-</section>
+  <!-- BLE -->
+  <section class="panel" id="panel-ble">
+    <table class="grid" id="bleTable">
+      <thead><tr>
+        <th data-s="name">NAME</th><th data-s="address">ADDRESS</th><th data-s="type">TYPE</th>
+        <th data-s="rssi">RSSI</th><th>SIGNAL</th><th data-s="vendor">VENDOR</th>
+        <th data-s="mfg">MFG</th><th data-s="seen">SEEN</th><th>SERVICES</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <!-- WHITELIST -->
+  <section class="panel" id="panel-white">
+    <div class="wlform">
+      <input type="text" id="wlSsid" placeholder="trusted SSID (e.g. BankCorp-WiFi)">
+      <input type="text" id="wlBssid" placeholder="bssid aa:bb:cc:dd:ee:ff">
+      <button class="btn" id="wlAdd">+ ADD TRUSTED</button>
+    </div>
+    <p class="hint">Tip: open the WIFI tab and use the &#9733; button on a row to add that exact
+       AP as trusted.</p>
+    <div id="wlList" class="wllist"></div>
+  </section>
+
+  <!-- LOGS -->
+  <section class="panel" id="panel-logs">
+    <p class="hint">Full survey history is written to flash as CSV (auto-rolled at 6&nbsp;MB).
+       Download for offline analysis or import into a SIEM/spreadsheet.</p>
+    <div class="logbtns">
+      <a class="btn" href="/api/logs/wifi" download>&#11015; DOWNLOAD WIFI LOG</a>
+      <a class="btn" href="/api/logs/ble" download>&#11015; DOWNLOAD BLE LOG</a>
+      <button class="btn danger" id="btnWipe">&#10007; WIPE LOGS</button>
+    </div>
+  </section>
 </main>
 
-<footer><span id="fMode">MODE: WARDRIVE</span><span id="fScan">scan: --</span>
-<span class="spacer" style="flex:1"></span><span>// stay legal // stay curious</span></footer>
+<footer>
+  <span id="footMsg">esp32-s3 wardriver // authorised testing only</span>
+</footer>
 
-<script>
-let DEV=[],SORT='rssi',ASC=false,SNIFF=false;
-const $=id=>document.getElementById(id);
-const esc=s=>s==null?'':String(s);
-async function jget(u){const r=await fetch(u);return r.json();}
-async function jpost(u,p){const b=new URLSearchParams(p||{});
- const r=await fetch(u,{method:'POST',body:b});return r.json().catch(()=>({}));}
+<script src="/app.js"></script>
+</body>
+</html>
+)HTMLDOC";
 
-function tab(t){for(const x of['dev','pkt','info']){
- $('v'+x.charAt(0).toUpperCase()+x.slice(1)).classList.toggle('hidden',x!==t);
- $('tab'+x.charAt(0).toUpperCase()+x.slice(1)).classList.toggle('on',x===t);}}
+static const char STYLE_CSS[] PROGMEM = R"CSSDOC(
+:root{
+  --bg:#000600; --fg:#00ff41; --dim:#0a8a2a; --dark:#031a08;
+  --warn:#ffb000; --alert:#ff2d4f; --panel:rgba(0,20,4,.78);
+  --grid:#0c2f14; --mono:'Courier New',Courier,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  background:var(--bg); color:var(--fg); font-family:var(--mono);
+  font-size:13px; line-height:1.4; overflow-x:hidden;
+}
+#matrix{position:fixed;inset:0;z-index:0;opacity:.18;pointer-events:none}
+header,section,nav,main,footer{position:relative;z-index:1}
 
-async function setMode(m){await jpost('/api/mode',{mode:m});refreshStatus();}
-function applyMode(m){const a=m==='attack';
- $('mWar').className=a?'':'on';$('mAtk').className=a?'on atk':'';
- $('atkOff').classList.toggle('hidden',a);$('fMode').textContent='MODE: '+m.toUpperCase();}
+/* scanline overlay */
+body::after{content:"";position:fixed;inset:0;z-index:2;pointer-events:none;
+  background:repeating-linear-gradient(0deg,rgba(0,0,0,.18) 0,rgba(0,0,0,.18) 1px,transparent 1px,transparent 3px)}
 
-async function refreshStatus(){try{const s=await jget('/api/status');
- $('sDev').textContent=s.devices;$('sWifi').textContent=s.wifi;
- $('sThreat').textContent=s.threats;
- $('sGps').textContent=s.gps.fix?s.gps.sats+'sat':(s.gps.present?'srch':'--');
- $('sUp').textContent=fmtUp(s.uptime);$('sHeap').textContent=Math.round(s.heap/1024);
- const ago=s.lastScan>0?Math.max(0,s.uptime-((s.lastScan/1000)|0)):-1;
- $('fScan').textContent='wifi scan: '+(ago>=0?ago+'s ago':'--');
- applyMode(s.mode);
- $('iGps').textContent='GPS: '+(s.gps.fix?(s.gps.lat.toFixed(5)+', '+s.gps.lon.toFixed(5)+
-   ' ('+s.gps.sats+' sats)'):(s.gps.present?'searching':'no module / no fix'));
- $('iAp').textContent='AP: '+s.ssid+'  ('+s.ip+', ch '+s.apChannel+')';
- if(!$('chan').options.length){for(let c=1;c<=13;c++){const o=document.createElement('option');
-   o.value=c;o.text=c;if(c==s.apChannel)o.selected=true;$('chan').appendChild(o);}}
-}catch(e){}}
+.topbar{display:flex;justify-content:space-between;align-items:center;
+  padding:10px 16px;border-bottom:1px solid var(--dim);
+  background:linear-gradient(180deg,rgba(0,40,10,.6),transparent)}
+.brand{display:flex;align-items:center;gap:10px}
+.logo{color:var(--fg);text-shadow:0 0 8px var(--fg);animation:blink 1.2s step-end infinite}
+h1{font-size:22px;letter-spacing:4px;margin:0;text-shadow:0 0 10px var(--fg)}
+.ver{color:var(--dim);font-size:11px}
+.statusline{font-size:12px;color:var(--dim)}
+.statusline .sep{margin:0 8px;opacity:.5}
+#scanState{color:var(--fg)}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--dim);
+  margin-right:6px;vertical-align:middle}
+.dot.live{background:var(--alert);box-shadow:0 0 8px var(--alert);animation:pulse 1s infinite}
+.dot.idle{background:var(--fg);box-shadow:0 0 8px var(--fg)}
+.dot.paused{background:var(--warn);box-shadow:0 0 8px var(--warn)}
 
-function fmtUp(s){s|=0;const d=s/86400|0,h=(s%86400)/3600|0,m=(s%3600)/60|0;
- return d?d+'d'+h+'h':h?h+'h'+m+'m':m?m+'m'+(s%60)+'s':s+'s';}
+.stats{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;padding:12px 16px}
+.stat{border:1px solid var(--grid);background:var(--panel);padding:8px 10px;border-radius:4px}
+.stat .k{font-size:10px;color:var(--dim);letter-spacing:1px}
+.stat .v{font-size:22px;text-shadow:0 0 8px var(--fg)}
+.stat.alert .v{color:var(--alert);text-shadow:0 0 8px var(--alert)}
 
-async function refreshDevices(){try{DEV=await jget('/api/devices');render();}catch(e){}}
-function sortBy(k){if(SORT===k)ASC=!ASC;else{SORT=k;ASC=(k==='ssid'||k==='mac');}render();}
+.control{display:flex;gap:8px;align-items:center;padding:0 16px 12px;flex-wrap:wrap}
+.spacer{flex:1}
+.btn{background:var(--dark);color:var(--fg);border:1px solid var(--dim);
+  padding:7px 12px;font-family:var(--mono);font-size:12px;cursor:pointer;border-radius:3px;
+  text-decoration:none;display:inline-block;letter-spacing:1px;transition:.15s}
+.btn:hover{background:var(--fg);color:#000;box-shadow:0 0 12px var(--fg)}
+.btn.ghost{border-color:var(--grid);color:var(--dim)}
+.btn.danger{border-color:var(--alert);color:var(--alert)}
+.btn.danger:hover{background:var(--alert);color:#000;box-shadow:0 0 12px var(--alert)}
+.tgl{border:1px solid var(--grid);padding:6px 10px;border-radius:3px;cursor:pointer;user-select:none}
+.tgl input{accent-color:var(--fg)}
+.filt{background:#020e05;border:1px solid var(--dim);color:var(--fg);padding:7px 10px;
+  border-radius:3px;font-family:var(--mono);min-width:180px}
+.filt:focus{outline:none;box-shadow:0 0 8px var(--dim)}
 
-function render(){const f=$('filter').value.toLowerCase(),ft=$('ftype').value;
- let list=DEV.filter(d=>{
-   if(ft==='danger'&&!d.dangerous)return false;
-   if(!f)return true;
-   return (esc(d.ssid)+esc(d.mac)+esc(d.vendor)).toLowerCase().includes(f);});
- list.sort((a,b)=>{let x=a[SORT],y=b[SORT];
-   if(typeof x==='string'){x=x.toLowerCase();y=esc(y).toLowerCase();
-     return ASC?(x<y?-1:x>y?1:0):(x>y?-1:x<y?1:0);}
-   return ASC?x-y:y-x;});
- const tb=$('rows');tb.textContent='';
- for(const d of list){const tr=document.createElement('tr');
-   tr.className=d.dangerous?'danger':'wifi';
-   const cells=[];
-   const c0=document.createElement('td');c0.className='ssid';
-   c0.textContent=d.ssid||'<hidden>';
-   if(d.dangerous){const t=document.createElement('span');t.className='tag';
-     t.textContent=' '+d.threat;t.style.marginLeft='6px';c0.appendChild(t);}
-   tr.appendChild(c0);
-   for(const v of [d.mac,d.rssi+'dBm',d.type,d.channel||'-',d.enc||'-',
-     d.vendor||'-',d.hits,d.hasGps?'●':'-']){
-     const td=document.createElement('td');td.textContent=v;tr.appendChild(td);}
-   tb.appendChild(tr);}}
+.tabs{display:flex;gap:2px;padding:0 12px;border-bottom:1px solid var(--dim);flex-wrap:wrap}
+.tab{background:transparent;border:1px solid transparent;border-bottom:none;color:var(--dim);
+  padding:8px 14px;cursor:pointer;font-family:var(--mono);font-size:12px;letter-spacing:1px}
+.tab:hover{color:var(--fg)}
+.tab.active{color:var(--fg);border-color:var(--dim);background:var(--panel);
+  border-radius:4px 4px 0 0;text-shadow:0 0 6px var(--fg)}
+.cnt{background:var(--grid);border-radius:8px;padding:0 6px;font-size:10px;margin-left:4px}
+.cnt.warn{background:var(--alert);color:#000}
 
-async function clearAll(){if(!confirm('Clear all discovered devices?'))return;
- await jpost('/api/clear');refreshDevices();refreshStatus();}
+main{padding:12px 16px 40px}
+.panel{display:none}
+.panel.active{display:block;animation:fade .2s}
+.hint{color:var(--dim);font-size:11px;border-left:2px solid var(--grid);padding-left:8px;margin:4px 0 12px}
 
-/* packet monitor */
-async function toggleSniff(){SNIFF=!SNIFF;
- await jpost('/api/sniff',{action:SNIFF?'start':'stop',channel:$('chan').value});
- $('snBtn').textContent=SNIFF?'STOP SNIFF':'START SNIFF';
- $('snBtn').className=SNIFF?'btn red':'btn';}
-async function setChan(){await jpost('/api/sniff',{action:'channel',channel:$('chan').value});}
-async function resetPkt(){await jpost('/api/sniff',{action:'reset'});refreshPackets();}
-async function deauth(){const ap=$('apMac').value.trim();
- if(!/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i.test(ap)){alert('Enter a valid AP BSSID');return;}
- const r=await jpost('/api/deauth',{ap:ap,client:$('clMac').value.trim(),bursts:$('bursts').value});
- if(r.error)alert(r.error);}
-async function refreshPackets(){if($('vPkt').classList.contains('hidden'))return;
- try{const p=await jget('/api/packets');const s=p.stats;
-   $('pTot').textContent=s.total;$('pMgmt').textContent=s.mgmt;$('pData').textContent=s.data;
-   $('pCtrl').textContent=s.ctrl;$('pBeac').textContent=s.beacon;$('pProbe').textContent=s.probe;
-   $('pDeau').textContent=s.deauth;$('pEap').textContent=s.eapol;
-   const tb=$('pkts');tb.textContent='';
-   for(const r of p.recent.slice().reverse()){const tr=document.createElement('tr');
-     for(const v of [r.t,r.kind,r.src,r.dst,r.ch,r.rssi+'dBm']){
-       const td=document.createElement('td');td.textContent=v;tr.appendChild(td);}
-     tb.appendChild(tr);}}catch(e){}}
+table.grid{width:100%;border-collapse:collapse;font-size:12px}
+.grid th{text-align:left;color:var(--dim);border-bottom:1px solid var(--dim);
+  padding:6px 8px;position:sticky;top:0;background:#020a04;cursor:pointer;white-space:nowrap}
+.grid th:hover{color:var(--fg)}
+.grid td{padding:5px 8px;border-bottom:1px solid var(--grid);white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;max-width:240px}
+.grid tr:hover td{background:rgba(0,255,65,.06)}
 
-setInterval(refreshStatus,1500);
-setInterval(refreshDevices,2500);
-setInterval(refreshPackets,1500);
-refreshStatus();refreshDevices();
-</script>
-</body></html>)=====";
+.bar{display:inline-block;width:70px;height:8px;background:#03190a;border:1px solid var(--grid);
+  border-radius:2px;overflow:hidden;vertical-align:middle}
+.bar > i{display:block;height:100%}
+.enc{padding:1px 6px;border-radius:3px;font-size:10px;border:1px solid}
+.enc.open{color:var(--alert);border-color:var(--alert)}
+.enc.weak{color:var(--warn);border-color:var(--warn)}
+.enc.ok{color:var(--fg);border-color:var(--dim)}
+.badge{padding:1px 6px;border-radius:3px;font-size:10px;font-weight:bold}
+.badge.alert{background:var(--alert);color:#000;animation:pulse 1.2s infinite}
+.badge.watch{background:var(--warn);color:#000}
+.badge.ok{color:var(--dim)}
+tr.rogue td{background:rgba(255,45,79,.10)}
+.star{cursor:pointer;color:var(--dim)}
+.star:hover{color:var(--warn)}
+
+.wlform{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.wlform input{background:#020e05;border:1px solid var(--dim);color:var(--fg);
+  padding:8px 10px;border-radius:3px;font-family:var(--mono);min-width:220px}
+.wllist .wlentry{border:1px solid var(--grid);background:var(--panel);padding:8px 10px;
+  border-radius:4px;margin-bottom:6px}
+.wllist .ss{color:var(--fg);font-weight:bold}
+.wllist .bb{color:var(--dim);display:flex;justify-content:space-between;align-items:center;
+  padding:2px 0;border-top:1px dashed var(--grid);margin-top:4px}
+.wllist .rm{color:var(--alert);cursor:pointer}
+.logbtns{display:flex;gap:10px;flex-wrap:wrap}
+
+footer{position:fixed;bottom:0;left:0;right:0;z-index:3;font-size:10px;color:var(--dim);
+  padding:4px 16px;background:#000;border-top:1px solid var(--grid)}
+
+@keyframes blink{50%{opacity:.2}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.glitch{position:relative}
+.glitch::before,.glitch::after{content:attr(data-text);position:absolute;left:0;top:0;
+  width:100%;overflow:hidden;opacity:.7}
+.glitch::before{color:#00fff2;animation:g1 2.5s infinite;clip-path:inset(0 0 60% 0)}
+.glitch::after{color:var(--alert);animation:g2 3s infinite;clip-path:inset(60% 0 0 0)}
+@keyframes g1{0%,100%{transform:translateX(0)}45%{transform:translateX(-2px)}50%{transform:translateX(2px)}}
+@keyframes g2{0%,100%{transform:translateX(0)}48%{transform:translateX(2px)}52%{transform:translateX(-2px)}}
+
+@media(max-width:760px){
+  .stats{grid-template-columns:repeat(3,1fr)}
+  h1{font-size:18px}
+  .grid td{max-width:120px}
+}
+)CSSDOC";
+
+static const char APP_JS[] PROGMEM = R"JSDOC(
+'use strict';
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+let WIFI = [], BLE = [], ROGUE = [], WL = {};
+let sortKey = 'rssi', sortDir = -1, filterTxt = '';
+
+// ---- matrix rain background ----
+(function(){
+  const c = $('#matrix'), x = c.getContext('2d');
+  let cols, drops;
+  const chars = 'アイウカキ0123456789ABCDEF#@$%&*';
+  function resize(){ c.width = innerWidth; c.height = innerHeight;
+    cols = Math.floor(c.width/14); drops = Array(cols).fill(1); }
+  resize(); addEventListener('resize', resize);
+  setInterval(()=>{
+    x.fillStyle='rgba(0,6,0,.08)'; x.fillRect(0,0,c.width,c.height);
+    x.fillStyle='#00ff41'; x.font='14px monospace';
+    for(let i=0;i<drops.length;i++){
+      x.fillText(chars[Math.random()*chars.length|0], i*14, drops[i]*14);
+      if(drops[i]*14>c.height && Math.random()>.975) drops[i]=0;
+      drops[i]++;
+    }
+  },60);
+})();
+
+// ---- tabs ----
+$$('.tab').forEach(t=>t.onclick=()=>{
+  $$('.tab').forEach(x=>x.classList.remove('active'));
+  $$('.panel').forEach(x=>x.classList.remove('active'));
+  t.classList.add('active');
+  $('#panel-'+t.dataset.tab).classList.add('active');
+});
+
+// ---- column sort ----
+function bindSort(tableSel){
+  $$(tableSel+' th[data-s]').forEach(th=>th.onclick=()=>{
+    const k = th.dataset.s;
+    if(sortKey===k) sortDir*=-1; else { sortKey=k; sortDir=1; }
+    render();
+  });
+}
+bindSort('#wifiTable'); bindSort('#bleTable');
+
+$('#filter').oninput = e => { filterTxt = e.target.value.toLowerCase(); render(); };
+
+// ---- helpers ----
+function encClass(e){ if(e==='OPEN')return 'open'; if(e==='WEP')return 'weak'; return 'ok'; }
+function barColor(q){ return q>66?'#00ff41':q>33?'#ffb000':'#ff2d4f'; }
+function sigBar(q){ return `<span class="bar"><i style="width:${q}%;background:${barColor(q)}"></i></span>`; }
+function esc(s){ return (s==null?'':(''+s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function age(s){ return s<60?s+'s':s<3600?(s/60|0)+'m':(s/3600|0)+'h'; }
+function matchF(o){ if(!filterTxt) return true; return JSON.stringify(o).toLowerCase().includes(filterTxt); }
+function sortRows(rows){
+  return rows.sort((a,b)=>{
+    let A=a[sortKey], B=b[sortKey];
+    if(typeof A==='string'){ A=A.toLowerCase(); B=(''+B).toLowerCase(); }
+    return (A<B?-1:A>B?1:0)*sortDir;
+  });
+}
+
+// ---- renderers ----
+function render(){
+  // WIFI
+  let rows = sortRows(WIFI.filter(matchF));
+  $('#wifiTable tbody').innerHTML = rows.map(a=>{
+    const sev = a.sev===2?'<span class="badge alert">ALERT</span>'
+              : a.sev===1?'<span class="badge watch">WATCH</span>'
+              : '<span class="badge ok">ok</span>';
+    return `<tr class="${a.sev===2?'rogue':''}">
+      <td title="${esc(a.reason)}">${esc(a.ssid)}</td>
+      <td>${a.bssid} <span class="star" title="trust this AP"
+            data-ssid="${esc(a.ssid)}" data-bssid="${esc(a.bssid)}">&#9733;</span></td>
+      <td>${a.rssi}</td><td>${sigBar(a.quality)}</td><td>${a.channel}</td>
+      <td><span class="enc ${encClass(a.enc)}">${a.enc}</span></td>
+      <td>${esc(a.vendor)}</td><td>${a.seen}</td><td>${sev}</td></tr>`;
+  }).join('') || emptyRow(9);
+
+  // ROGUE
+  $('#rogueTable tbody').innerHTML = ROGUE.map(a=>{
+    const sev=a.sev===2?'<span class="badge alert">ALERT</span>':'<span class="badge watch">WATCH</span>';
+    return `<tr class="${a.sev===2?'rogue':''}"><td>${sev}</td><td>${esc(a.ssid)}</td>
+      <td>${a.bssid}</td><td>${a.rssi}</td><td>${a.channel}</td>
+      <td><span class="enc ${encClass(a.enc)}">${a.enc}</span></td>
+      <td>${esc(a.vendor)}</td><td>${esc(a.reason)}</td></tr>`;
+  }).join('') || emptyRow(8,'no rogue activity detected');
+
+  // BLE
+  let brows = sortRows(BLE.filter(matchF));
+  $('#bleTable tbody').innerHTML = brows.map(d=>`<tr>
+      <td>${esc(d.name)||'<i style=opacity:.4>--</i>'}</td><td>${d.address}</td>
+      <td>${d.type}</td><td>${d.rssi}</td><td>${sigBar(d.quality)}</td>
+      <td>${esc(d.vendor)}</td><td>${esc(d.mfg)}</td><td>${d.seen}</td>
+      <td title="${esc(d.services)}">${esc(d.services)||'--'}</td></tr>`
+  ).join('') || emptyRow(9);
+
+  $('#tWifi').textContent=WIFI.length; $('#tBle').textContent=BLE.length;
+  $('#tRogue').textContent=ROGUE.length;
+}
+function emptyRow(n,msg){ return `<tr><td colspan="${n}" style="text-align:center;color:#0a8a2a;padding:20px">${msg||'// no data yet — scanning...'}</td></tr>`; }
+
+function renderWL(){
+  const keys = Object.keys(WL).sort();
+  $('#wlList').innerHTML = keys.length ? keys.map(s=>`
+    <div class="wlentry"><div class="ss">${esc(s)}
+      <span class="rm" data-ssid="${esc(s)}" data-bssid="">[remove ssid]</span></div>
+      ${WL[s].map(b=>`<div class="bb"><span>${esc(b)}</span>
+        <span class="rm" data-ssid="${esc(s)}" data-bssid="${esc(b)}">&#10007;</span></div>`).join('')}
+    </div>`).join('')
+    : '<p class="hint">No trusted APs yet. Add your bank\'s legitimate access points so evil twins stand out.</p>';
+}
+
+// ---- status ----
+function applyStatus(s){
+  $('#fwver').textContent = 'v'+s.version;
+  $('#sWifi').textContent = s.wifi_live; $('#sBle').textContent = s.ble_live;
+  $('#sRogue').textContent = s.rogue_count; $('#sCycles').textContent = s.cycles;
+  $('#sClients').textContent = s.clients;
+  $('#sPsram').textContent = (s.psram_free/1024/1024).toFixed(1)+'M';
+  $('#uptime').textContent = age(s.uptime_s);
+  let ip = 'AP '+s.ap_ip; if(s.sta_connected) ip += ' / STA '+s.sta_ip;
+  $('#ipInfo').textContent = ip;
+  const dot=$('#scanDot');
+  dot.className='dot '+(!s.scanning?'paused':s.phase==='idle'?'idle':'live');
+  $('#scanState').textContent = !s.scanning?'PAUSED':('SCAN:'+s.phase.toUpperCase());
+  $('#btnScan').innerHTML = s.scanning?'&#9632; STOP SCAN':'&#9658; START SCAN';
+  $('#tgWifi').checked=s.wifi_enabled; $('#tgBle').checked=s.ble_enabled;
+}
+
+// ---- API ----
+async function post(url,data){
+  const b=new URLSearchParams(data);
+  return fetch(url,{method:'POST',body:b}).then(r=>r.json()).catch(()=>{});
+}
+async function refresh(){
+  try{
+    const [w,b,r]=await Promise.all([
+      fetch('/api/wifi').then(r=>r.json()),
+      fetch('/api/ble').then(r=>r.json()),
+      fetch('/api/rogues').then(r=>r.json())]);
+    WIFI=w; BLE=b; ROGUE=r; render();
+  }catch(e){}
+}
+async function loadWL(){ WL=await fetch('/api/whitelist').then(r=>r.json()).catch(()=>({})); renderWL(); }
+
+function trust(ssid,bssid){ post('/api/whitelist',{action:'add',ssid,bssid}).then(()=>{loadWL();refresh();flash('trusted '+bssid);}); }
+function rmWL(ssid,bssid){ post('/api/whitelist',{action:'remove',ssid,bssid}).then(()=>{loadWL();refresh();}); }
+
+// Delegated clicks — keeps SSID/BSSID values in data-* attributes so names
+// containing quotes/backslashes can never break an inline handler.
+document.addEventListener('click', e => {
+  const star = e.target.closest('.star');
+  if (star) { trust(star.dataset.ssid, star.dataset.bssid); return; }
+  const rm = e.target.closest('.rm');
+  if (rm) { rmWL(rm.dataset.ssid, rm.dataset.bssid); return; }
+});
+
+function flash(m){ const f=$('#footMsg'); f.textContent='>> '+m; setTimeout(()=>f.textContent='esp32-s3 wardriver // authorised testing only',2500); }
+
+// ---- controls ----
+let scanning=true;
+$('#btnScan').onclick=()=>{ scanning=!scanning; post('/api/control',{scanning:scanning?1:0}).then(applyStatus); };
+$('#tgWifi').onchange=e=>post('/api/control',{wifi:e.target.checked?1:0}).then(applyStatus);
+$('#tgBle').onchange=e=>post('/api/control',{ble:e.target.checked?1:0}).then(applyStatus);
+$('#btnClearWifi').onclick=()=>post('/api/clear',{what:'wifi'}).then(()=>{refresh();flash('wifi table cleared');});
+$('#btnClearBle').onclick=()=>post('/api/clear',{what:'ble'}).then(()=>{refresh();flash('ble table cleared');});
+$('#wlAdd').onclick=()=>{ const s=$('#wlSsid').value.trim(),b=$('#wlBssid').value.trim();
+  if(!s){flash('ssid required');return;} post('/api/whitelist',{action:'add',ssid:s,bssid:b})
+    .then(()=>{$('#wlSsid').value='';$('#wlBssid').value='';loadWL();refresh();flash('added '+s);}); };
+$('#btnWipe').onclick=()=>{ if(confirm('Erase all CSV logs on the device?'))
+  fetch('/api/logs',{method:'DELETE'}).then(()=>flash('logs wiped')); };
+
+// ---- live status via websocket, table data via polling ----
+function connectWS(){
+  try{
+    const ws=new WebSocket('ws://'+location.host+'/ws');
+    ws.onmessage=e=>{ try{ const s=JSON.parse(e.data); scanning=s.scanning; applyStatus(s);}catch(_){} };
+    ws.onclose=()=>setTimeout(connectWS,2000);
+  }catch(e){ setTimeout(connectWS,2000); }
+}
+
+fetch('/api/status').then(r=>r.json()).then(s=>{scanning=s.scanning;applyStatus(s);});
+loadWL(); refresh(); connectWS();
+setInterval(refresh, 3000);
+)JSDOC";
