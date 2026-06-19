@@ -77,16 +77,23 @@ static void replyQueued(AsyncWebServerRequest* req, uint32_t id) {
 }
 
 // ---- /ingest body accumulation (manual; body is JSON, not urlencoded) ------
+// Refuse absurd payloads so a misbehaving/hostile client on the AP can't make
+// us allocate unbounded memory. An over-limit body is left truncated, so the
+// JSON parse fails and handleIngest() returns a clean error.
+static const size_t INGEST_MAX_BYTES = 96 * 1024;
+
 static void onIngestBody(AsyncWebServerRequest* req, uint8_t* data, size_t len,
                          size_t index, size_t total) {
   if (index == 0) {
     if (req->_tempObject) { delete reinterpret_cast<String*>(req->_tempObject); }
     String* buf = new String();
-    buf->reserve(total + 1);
+    buf->reserve((total < INGEST_MAX_BYTES ? total : INGEST_MAX_BYTES) + 1);
     req->_tempObject = buf;
   }
   if (req->_tempObject) {
-    reinterpret_cast<String*>(req->_tempObject)->concat((const char*)data, len);
+    String* buf = reinterpret_cast<String*>(req->_tempObject);
+    if (buf->length() + len <= INGEST_MAX_BYTES)
+      buf->concat((const char*)data, len);
   }
 }
 

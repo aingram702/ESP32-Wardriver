@@ -4,7 +4,7 @@
 //  The companion ESP32-BlueDriver is a headless BLE sensor that POSTs its
 //  discovered devices to this board's /ingest endpoint on a timer. This module:
 //    * mirrors BlueDriver's reported status (for the BLUEDRIVER tab in the UI),
-//    * pushes ingested BLE devices into the shared NetworkStore,
+//    * pushes ingested BLE devices into the shared BLE store (via ingestBleDevice),
 //    * holds a queue of control commands that ride back on each POST's response
 //      (start/stop/clear scan, active-scan toggle, beacon, GATT enumeration),
 //    * keeps the latest GATT report BlueDriver returned.

@@ -25,9 +25,13 @@
 #define WIFI_SCAN_ENABLED_DEFAULT   true
 #define BLE_SCAN_ENABLED_DEFAULT    true
 
-#define WIFI_SCAN_CHANNEL_DWELL_MS  120     // per-channel dwell for active scan
-#define BLE_SCAN_SECONDS            5       // BLE scan window per cycle
-#define CYCLE_PAUSE_MS              250     // pause between full scan cycles
+#define WIFI_SCAN_CHANNEL_DWELL_MS  120     // dwell on the one channel we scan
+// Gap between single-channel scans. This is the SoftAP-stability knob: a longer
+// pause keeps the AP on its home channel a larger fraction of the time (so the
+// BlueDriver link and your browser stay connected) at the cost of slower full-
+// band coverage. ~1 s keeps the AP on-channel ~85%+ of the time.
+#define CYCLE_PAUSE_MS              1000
+#define BLE_SCAN_SECONDS            5       // (unused on this board; BLE is offloaded)
 
 // ---- Capacity limits (kept in RAM; logs on flash are unbounded-ish) --------
 #define MAX_WIFI_APS     300

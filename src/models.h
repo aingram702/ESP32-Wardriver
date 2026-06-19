@@ -54,3 +54,9 @@ inline int rssiToQuality(int32_t rssi) {
     if (rssi >= -50)  return 100;
     return 2 * (rssi + 100);
 }
+
+// Implemented in main.cpp. Merge a BLE device reported by the companion
+// ESP32-BlueDriver (received on POST /ingest) into the shared BLE store.
+// Thread-safe (takes the data mutex internally). Returns true if newly added.
+bool ingestBleDevice(const String& mac, const String& name,
+                     const String& vendor, int rssi, uint32_t hits);

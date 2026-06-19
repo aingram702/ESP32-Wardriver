@@ -15,7 +15,6 @@
 #include <LittleFS.h>
 #include <ArduinoJson.h>
 #include <ESPAsyncWebServer.h>
-#include <NimBLEDevice.h>
 #include <map>
 #include <vector>
 #include <algorithm>
@@ -24,6 +23,7 @@
 #include "models.h"
 #include "oui.h"
 #include "web_assets.h"
+#include "blue_routes.h"   // BlueDriver link: /ingest + /api/blue/* endpoints
 
 // ---------------------------------------------------------------------------
 //  Globals
@@ -248,12 +248,18 @@ static void evaluateRogues() {
 // ---------------------------------------------------------------------------
 //  WiFi scanning (asynchronous, non-blocking)
 // ---------------------------------------------------------------------------
-static bool g_wifiScanInFlight = false;
+static bool    g_wifiScanInFlight = false;
+static uint8_t g_scanChannel      = 1;   // rotated one channel per cycle
 
 static void startWifiScan() {
     if (g_wifiScanInFlight) return;
-    // async=true, show_hidden=true, passive=false, dwell ms/chan, all channels
-    WiFi.scanNetworks(true, true, false, WIFI_SCAN_CHANNEL_DWELL_MS);
+    // Scan ONE channel per cycle, not a full sweep. In AP(+STA) the single radio
+    // must leave the SoftAP's channel to scan, so a 13-channel sweep would park
+    // the AP off-channel ~1.5 s at a time and the connected BlueDriver/clients
+    // would keep dropping. One channel per cycle keeps the AP on-channel and the
+    // /ingest link stable; the full band is still covered every ~13 cycles.
+    // args: async, show_hidden, passive, dwell ms, channel
+    WiFi.scanNetworks(true, true, false, WIFI_SCAN_CHANNEL_DWELL_MS, g_scanChannel);
     g_wifiScanInFlight = true;
     g_state.phase = "wifi";
 }
@@ -310,86 +316,54 @@ static void collectWifiScan() {
 
     WiFi.scanDelete();
     g_wifiScanInFlight = false;
+    if (++g_scanChannel > 13) g_scanChannel = 1;   // advance for the next cycle
 }
 
 // ---------------------------------------------------------------------------
-//  BLE scanning (NimBLE)
+//  BLE ingest
+//
+//  This board no longer runs its own BLE radio. The companion ESP32-BlueDriver
+//  scans BLE and POSTs its finds to /ingest (see BlueLink / blue_routes), which
+//  calls this to merge each device into the shared store. Keeping BLE off this
+//  board's radio also removes the WiFi/BT coexistence that destabilised the AP.
 // ---------------------------------------------------------------------------
-class ScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
-    void onResult(NimBLEAdvertisedDevice* dev) override {
-        uint32_t now = millis();
-        String addr = dev->getAddress().toString().c_str();
-        addr.toLowerCase();
+bool ingestBleDevice(const String& macIn, const String& name,
+                     const String& vendor, int rssi, uint32_t hits) {
+    String mac = macIn; mac.toLowerCase();
+    if (mac.length() != 17) return false;            // basic "aa:bb:.." sanity
+    uint32_t now = millis();
 
-        lockData();
-        BLEDev& d = g_ble[addr];
-        bool isNew = (d.timesSeen == 0);
-        d.address  = addr;
-        d.addrType = (dev->getAddress().getType() == BLE_ADDR_PUBLIC) ? "public" : "random";
-        if (dev->haveName()) d.name = dev->getName().c_str();
-        d.rssi     = dev->getRSSI();
-        d.rssiBest = std::max(d.rssiBest, d.rssi);
-        if (dev->haveAppearance()) d.appearance = dev->getAppearance();
-
-        // Vendor only meaningful for public addresses.
-        if (d.addrType == "public") {
-            uint8_t mac[6];
-            const uint8_t* native = dev->getAddress().getNative(); // 6 bytes, reversed
-            for (int i = 0; i < 6; i++) mac[i] = native[5 - i];
-            d.vendor = ouiLookup(mac);
-        } else {
-            d.vendor = "Randomized/Local";
-        }
-
-        if (dev->haveManufacturerData()) {
-            std::string md = dev->getManufacturerData();
-            if (md.size() >= 2) {
-                char buf[8];
-                snprintf(buf, sizeof(buf), "0x%02X%02X", (uint8_t)md[1], (uint8_t)md[0]);
-                d.manufacturer = buf; // little-endian company identifier
-            }
-        }
-        if (dev->haveServiceUUID()) {
-            String s;
-            for (size_t i = 0; i < dev->getServiceUUIDCount(); i++) {
-                if (i) s += ",";
-                s += dev->getServiceUUID(i).toString().c_str();
-            }
-            d.services = s;
-        }
-        if (isNew) { d.firstSeenMs = now; g_state.bleSeenTotal++; }
-        d.lastSeenMs = now;
-        d.timesSeen++;
-        unlockData();
-    }
-};
-static ScanCallbacks g_bleCallbacks;
-static NimBLEScan*   g_bleScan = nullptr;
-
-static void runBleScan() {
-    if (!g_bleScan) return;
-    g_state.phase = "ble";
-    g_bleScan->start(BLE_SCAN_SECONDS, false);   // blocking for the window
-    g_bleScan->clearResults();                   // free NimBLE's internal cache
-
-    // Trim BLE store to cap.
     lockData();
-    if (g_ble.size() > MAX_BLE_DEVS) {
-        std::vector<std::pair<uint32_t, String>> ages;
-        for (auto& kv : g_ble) ages.push_back({kv.second.lastSeenMs, kv.first});
-        std::sort(ages.begin(), ages.end());
-        for (size_t i = 0; i + MAX_BLE_DEVS < ages.size(); i++) g_ble.erase(ages[i].second);
-    }
-    // Log each BLE device once, on its first sighting (single open/close).
-    if (LOG_TO_FLASH) {
+    BLEDev& d = g_ble[mac];
+    bool isNew = (d.timesSeen == 0);
+    d.address = mac;
+    if (name.length())   d.name   = name;
+    if (vendor.length()) d.vendor = vendor;
+    else if (d.vendor.isEmpty()) d.vendor = "Unknown";
+    d.addrType  = (vendor == "Randomized/Local") ? "random" : "public";
+    d.rssi      = rssi;
+    d.rssiBest  = std::max(d.rssiBest, (int32_t)rssi);
+    d.timesSeen = hits ? hits : d.timesSeen + 1;
+    if (isNew) { d.firstSeenMs = now; g_state.bleSeenTotal++; }
+    d.lastSeenMs = now;
+
+    // Newly-seen devices get logged once. Open/close per device is fine here:
+    // ingest batches are small (<= ~40) and arrive only every few seconds.
+    if (isNew && LOG_TO_FLASH) {
         rollIfTooBig(BLE_LOG_PATH);
         File lf = LittleFS.open(BLE_LOG_PATH, "a");
-        if (lf) {
-            for (auto& kv : g_ble) if (kv.second.timesSeen == 1) writeBleLine(lf, kv.second);
-            lf.close();
-        }
+        if (lf) { writeBleLine(lf, d); lf.close(); }
+    }
+
+    // Enforce the in-RAM cap by evicting the single oldest entry if needed.
+    if (g_ble.size() > MAX_BLE_DEVS) {
+        auto oldest = g_ble.begin();
+        for (auto it = g_ble.begin(); it != g_ble.end(); ++it)
+            if (it->second.lastSeenMs < oldest->second.lastSeenMs) oldest = it;
+        if (oldest->first != mac) g_ble.erase(oldest);
     }
     unlockData();
+    return isNew;
 }
 
 // ---------------------------------------------------------------------------
@@ -632,6 +606,10 @@ static void setupRoutes() {
         req->send(404, "text/plain", "404");
     });
 
+    // BlueDriver link: POST /ingest (device uplink + command channel) and the
+    // /api/blue/* control endpoints. Also initialises the BlueLink singleton.
+    registerBlueRoutes(server);
+
     ws.onEvent(onWsEvent);
     server.addHandler(&ws);
     server.begin();
@@ -681,15 +659,8 @@ void setup() {
 
     startNetwork();
 
-    // BLE radio — share the antenna with WiFi (sequential scanning).
-    NimBLEDevice::init("wardriver");
-    NimBLEDevice::setPower(ESP_PWR_LVL_P9);
-    g_bleScan = NimBLEDevice::getScan();
-    g_bleScan->setAdvertisedDeviceCallbacks(&g_bleCallbacks, /*wantDuplicates=*/false);
-    g_bleScan->setActiveScan(true);          // request scan-response (names)
-    g_bleScan->setInterval(100);
-    g_bleScan->setWindow(99);
-
+    // BLE comes from the companion ESP32-BlueDriver over the /ingest link
+    // (registered inside setupRoutes); this board runs WiFi only.
     setupRoutes();
 
     g_state.scanning = true;
@@ -725,10 +696,8 @@ void loop() {
         if (g_wifiScanInFlight) { WiFi.scanDelete(); g_wifiScanInFlight = false; } // timeout guard
     }
 
-    setLed(0, 0, 16);             // blue flash = BLE phase
-
-    // ---- BLE phase (blocking for its window) ----
-    if (g_state.bleScanEnabled) runBleScan();
+    // BLE devices stream in asynchronously from the companion BlueDriver via
+    // POST /ingest, so there is no local BLE scan phase in this loop.
 
     g_state.cycles++;
     g_state.lastCycleMs = millis();

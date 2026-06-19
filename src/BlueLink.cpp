@@ -3,11 +3,20 @@
 // ============================================================================
 #include "BlueLink.h"
 #include <ArduinoJson.h>
+#include <esp_heap_caps.h>
 #include <esp_system.h>     // esp_random()
-#include "types.h"
-#include "NetworkStore.h"
+#include "models.h"         // ingestBleDevice()
 
 BlueLink g_blue;
+
+// Parse the (potentially large) ingest body in PSRAM so a batch upload never
+// starves the internal heap that WiFi + the async web server depend on.
+struct BlueSpiRamAllocator : ArduinoJson::Allocator {
+  void* allocate(size_t n) override   { return heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT); }
+  void  deallocate(void* p) override  { heap_caps_free(p); }
+  void* reallocate(void* p, size_t n) override { return heap_caps_realloc(p, n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT); }
+};
+static BlueSpiRamAllocator g_bluePsram;
 
 void BlueLink::begin() {
   if (!mtx_) mtx_ = xSemaphoreCreateMutex();
@@ -45,7 +54,7 @@ static void escTo(String& out, const String& s) {
 }
 
 void BlueLink::handleIngest(const String& body, String& out) {
-  JsonDocument doc;
+  JsonDocument doc(&g_bluePsram);
   if (deserializeJson(doc, body)) { out = "{\"error\":\"bad json\"}"; return; }
 
   uint32_t postedEpoch = doc["linkEpoch"] | 0;
@@ -91,24 +100,16 @@ void BlueLink::handleIngest(const String& body, String& out) {
   uint32_t added = 0;
   JsonArrayConst devs = doc["devices"].as<JsonArrayConst>();
   for (JsonObjectConst d : devs) {
-    const char* macs = d["mac"] | "";
-    uint8_t mac[6];
-    if (!strToMac(String(macs), mac)) continue;
+    String mac = String((const char*)(d["mac"] | ""));
+    if (mac.length() != 17) continue;            // skip malformed entries
 
     String   name   = String((const char*)(d["name"]   | ""));
     String   vendor = String((const char*)(d["vendor"] | ""));
-    int8_t   rssi   = (int8_t)(int)(d["rssiBest"] | (int)(d["rssi"] | 0));
-    uint16_t hits   = (uint16_t)(uint32_t)(d["count"] | 1);
-    bool     hasGps = ((int)(d["gps"] | 0)) != 0;
-    double   lat    = d["lat"]   | 0.0;
-    double   lon    = d["lon"]   | 0.0;
-    uint32_t first  = d["first"] | 0;
-    // BlueDriver's "first" is a GPS epoch only when it had a time fix; treat a
-    // plausible epoch as UTC, otherwise leave it blank (it was an uptime value).
-    time_t   firstUtc = (first > 1000000000UL) ? (time_t)first : 0;
-
-    if (g_store.observeBle(mac, name, vendor, rssi, hits, firstUtc, hasGps, lat, lon))
-      added++;
+    int      rssi   = (int)(d["rssiBest"] | (int)(d["rssi"] | 0));
+    uint32_t hits   = (uint32_t)(d["count"] | 1);
+    // (BlueDriver also reports per-device GPS + first-seen; the current BLE
+    //  model doesn't persist those, so they are ignored on this side for now.)
+    if (ingestBleDevice(mac, name, vendor, rssi, hits)) added++;
   }
 
   // ---- build response: ack + epoch + queued commands -----------------------

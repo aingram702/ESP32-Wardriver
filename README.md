@@ -223,7 +223,6 @@ PlatformIO is recommended, but if you prefer the Arduino IDE:
    v3.x).
 2. Install these libraries via **Library Manager**:
    - `ArduinoJson` (v7.x)
-   - `NimBLE-Arduino` (v1.4.x)
    - `ESPAsyncWebServer` and `AsyncTCP` — install the **ESP32Async** forks
      (the most actively maintained; from their GitHub releases if not in the
      Library Manager).
